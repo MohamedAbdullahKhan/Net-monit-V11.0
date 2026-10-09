@@ -1,0 +1,1095 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Settings</h1>
+    <p class="page-sub">Complete admin control centre — all configuration in one place.</p>
+  </div>
+</div>
+
+<div id="settings-locked" style="display:none;text-align:center;padding:60px 20px;color:var(--text-muted);">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:12px;opacity:.4"><rect x="3" y="11" width="18" height="11" rx="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+  <p style="font-size:15px;font-weight:600;margin-bottom:6px;">Admin session required</p>
+  <p style="font-size:13px;">Click <strong>Sign in</strong> (top right) and enter your admin token.</p>
+</div>
+
+<div id="settings-content" style="display:none;">
+  <div class="tab-bar" style="margin-bottom:18px;">
+    <button class="stab active" data-tab="email">📧 Email / SMTP</button>
+    <button class="stab" data-tab="notifications">🔔 Notifications</button>
+    <button class="stab" data-tab="escalation">⚡ Escalation</button>
+    <button class="stab" data-tab="templates">✉️ Notification Templates</button>
+    <button class="stab" data-tab="thresholds">📊 Thresholds</button>
+    <button class="stab" data-tab="devices">🖥 Monitors</button>
+    <button class="stab" data-tab="users">👥 Users</button>
+    <button class="stab" data-tab="audit">📜 Audit</button>
+    <button class="stab" data-tab="alerts">🚨 Alert Log</button>
+    <button class="stab" data-tab="license" id="license-tab-btn">🔑 License</button>
+    <button class="stab" data-tab="appearance">🎨 Appearance</button>
+    <button class="stab" data-tab="smscall">📱 SMS &amp; Call Alerts</button>
+    <button class="stab" data-tab="organisation">🏢 Organisation</button>
+  </div>
+
+  <!-- ═══ EMAIL ═══ -->
+  <div id="tab-email" class="stab-panel active">
+    <div class="card">
+      <h2 class="card-title">SMTP Configuration</h2>
+      <div class="form-grid">
+        <div class="field"><label>SMTP Enabled</label>
+          <select id="s-enabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div>
+        <div class="field"><label>SMTP Host</label><input id="s-host" type="text" placeholder="smtp.gmail.com"></div>
+        <div class="field"><label>Port</label><input id="s-port" type="number" placeholder="587"></div>
+        <div class="field"><label>Use TLS</label>
+          <select id="s-tls"><option value="true">Yes (STARTTLS)</option><option value="false">No</option></select></div>
+        <div class="field"><label>Username</label><input id="s-username" type="text" placeholder="alerts@company.com"></div>
+        <div class="field"><label>Password</label><input id="s-password" type="password" placeholder="Leave blank to keep"></div>
+        <div class="field"><label>From address</label><input id="s-from" type="text" placeholder="Net-monit &lt;alerts@company.com&gt;"></div>
+        <div class="field"><label>Resend interval (min)</label><input id="s-resend" type="number" placeholder="30"></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Admin emails — receive ALL alerts (To)</label>
+        <textarea id="s-admin-emails" rows="3" class="code-textarea" placeholder="admin@corp.com&#10;noc@corp.com"></textarea>
+      </div>
+      <div class="form-grid" style="margin-top:10px;">
+        <div class="field"><label>Support group</label>
+          <textarea id="s-support-emails" rows="2" class="code-textarea" placeholder="support@corp.com"></textarea></div>
+        <div class="field"><label>Manager group</label>
+          <textarea id="s-manager-emails" rows="2" class="code-textarea" placeholder="manager@corp.com"></textarea></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;">
+        <button id="btn-save-smtp" class="btn primary">Save SMTP</button>
+        <button id="btn-test-warn" class="btn secondary">Send test warning</button>
+        <button id="btn-test-crit" class="btn secondary">Send test critical</button>
+        <span id="s-smtp-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ NOTIFICATIONS ═══ -->
+  <div id="tab-notifications" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Global Notification Rules</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+        By default all new devices send alerts to <strong>admin emails only</strong>.
+        Use the per-device Notify button on the Devices page to customise recipients.
+      </p>
+      <div class="form-grid">
+        <div class="field"><label>Send on Warning</label>
+          <select id="n-send-warn"><option value="true">Yes</option><option value="false">No</option></select></div>
+        <div class="field"><label>Send on Critical</label>
+          <select id="n-send-crit"><option value="true">Yes</option><option value="false">No</option></select></div>
+        <div class="field"><label>Send on Recovery</label>
+          <select id="n-send-recov"><option value="true">Yes</option><option value="false">No</option></select></div>
+        <div class="field"><label>Send on Offline</label>
+          <select id="n-send-offline"><option value="true">Yes</option><option value="false">No</option></select></div>
+        <div class="field"><label>Re-send warning every (min)</label><input id="n-resend-warn" type="number" placeholder="60"></div>
+        <div class="field"><label>Re-send critical every (min)</label><input id="n-resend-crit" type="number" placeholder="30"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+        <button id="btn-save-notif" class="btn primary">Save</button>
+        <span id="s-notif-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">Per-device notification status</h2>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Device</th><th>Status</th><th>Recipients</th><th>Edit</th></tr></thead>
+        <tbody id="notif-device-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ ESCALATION ═══ -->
+  <div id="tab-escalation" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Global Escalation Defaults</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:6px;">
+        Toggle each level ON to enable it. Default is <strong>all levels OFF</strong> for all devices.
+        Use <em>Apply to all devices</em> to push these settings to every device at once.
+      </p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;
+         padding:8px 12px;background:rgba(79,209,197,.06);border-radius:4px;border-left:3px solid var(--accent);">
+        💡 New devices always start with escalation <strong>disabled</strong>. 
+        Admin emails always receive alerts by default regardless of escalation.
+      </p>
+      <div class="field" style="margin-bottom:16px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-hover);">
+        <label style="font-size:13px;font-weight:700;">Alert trigger mode</label>
+        <p style="font-size:12px;color:var(--text-muted);margin:4px 0 8px;">
+          <strong>Wait to confirm (default):</strong> don't email right away — only alert if the problem is
+          <em>still</em> happening after "Level 1" time below elapses (default 60s, adjustable). A brief blip
+          that recovers on its own (e.g. a few seconds of packet loss on a site that then comes back) still
+          shows up in the Alert Event Log, it just won't email anyone — no need to get paged for a single
+          small up/down spike.<br>
+          <strong>Immediate:</strong> email the instant a device/site goes down or crosses a threshold, with
+          no confirm delay at all.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <select id="esc-g-trigger-mode" style="max-width:280px;" onchange="toggleEscGWaitField()">
+            <option value="sustained">Wait to confirm, then alert (default)</option>
+            <option value="immediate">Immediate</option>
+          </select>
+          <span id="esc-g-wait-field" style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            Wait
+            <input type="number" id="esc-g-wait-sec" min="1" value="60" style="width:80px;"
+              title="Any number of seconds — 30, 60, 300, 600, whatever you need." onchange="syncEscGWaitToL1()">
+            seconds, then alert
+          </span>
+        </div>
+      </div>
+      <div class="field" style="margin-bottom:16px;padding:12px 14px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-hover);">
+        <label style="font-size:13px;font-weight:700;">Repeat-alert cooldown <span style="font-weight:400;color:var(--text-muted);">(V8.4)</span></label>
+        <p style="font-size:12px;color:var(--text-muted);margin:4px 0 8px;">
+          Separate from the trigger mode above, which only governs the <em>first</em> alert of a new
+          problem. This governs <strong>repeat</strong> alerts — useful when a metric flaps in and out of a
+          bad state every few seconds (a flaky link, a CPU spike that bounces around the threshold), which
+          without a cooldown can trigger a new email on every single flap.<br>
+          <strong>Immediate (default):</strong> no extra gap beyond what trigger mode / escalation levels
+          already impose.<br>
+          <strong>Cooldown:</strong> after any alert is sent, wait at least this many seconds before sending
+          another for the same device and metric, no matter how many times it flaps in between. If you
+          Acknowledge an alert, no further alerts are sent for it at all — even after the cooldown or the
+          specified time — until it's genuinely resolved.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <select id="esc-g-notify-mode" style="max-width:280px;" onchange="toggleEscGCooldownField()">
+            <option value="immediate">Immediate (default)</option>
+            <option value="cooldown">Cooldown</option>
+          </select>
+          <span id="esc-g-cooldown-field" style="display:none;align-items:center;gap:6px;font-size:13px;">
+            Minimum
+            <input type="number" id="esc-g-cooldown-sec" min="1" value="300" style="width:90px;"
+              title="Any number of seconds between repeat alerts for the same device+metric.">
+            seconds between repeat alerts
+          </span>
+        </div>
+      </div>
+      <div id="esc-levels-container">Loading…</div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;">
+        <button id="btn-save-esc-global" class="btn primary">Save defaults</button>
+        <button id="btn-apply-esc-all" class="btn secondary">Apply to all devices</button>
+        <span id="s-esc-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">Per-device escalation summary</h2>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Device</th><th>Levels</th><th>L1 delay</th><th>L2 delay</th><th>Edit</th></tr></thead>
+        <tbody id="esc-device-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ NOTIFICATION TEMPLATES ═══ -->
+  <div id="tab-templates" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Notification Templates</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:6px;">
+        Customize the subject, plain-text, and HTML content of alert emails — separately for each
+        alert state. A state you haven't touched keeps using Net-monit's built-in default, so nothing
+        here is required to get started.
+      </p>
+      <p style="font-size:12px;color:var(--text-muted);margin-bottom:14px;
+         padding:8px 12px;background:rgba(79,209,197,.06);border-radius:4px;border-left:3px solid var(--accent);">
+        💡 Use <code>{{'{{'}}placeholder{{'}}'}}</code> (double curly braces) to insert dynamic values —
+        including <code>{{'{{'}}portal_url{{'}}'}}</code>, the dashboard link. See the full list below.
+      </p>
+
+      <div id="tmpl-placeholder-ref" style="margin-bottom:18px;"></div>
+
+      <!-- Custom placeholders (V8.4) -->
+      <div class="card" style="margin-bottom:18px;background:var(--bg-hover);">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <h3 style="font-size:14px;margin:0;">Custom placeholders <span style="font-weight:400;color:var(--text-muted);font-size:12px;">(V8.4)</span></h3>
+          <button class="btn secondary small" onclick="openCustomPhModal()" type="button">&#43; Add new</button>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+          Define your own static text values — e.g. <code>{{'{{'}}company_name{{'}}'}}</code> or
+          <code>{{'{{'}}support_phone{{'}}'}}</code> — to reuse across every template without retyping them.
+          These appear alongside the built-in placeholders above wherever you insert one.
+        </p>
+        <div id="custom-ph-list" style="display:flex;flex-direction:column;gap:6px;">Loading…</div>
+      </div>
+
+      <div id="tmpl-states-container">Loading…</div>
+    </div>
+  </div>
+
+  <!-- Custom placeholder add/edit modal (V8.4) -->
+  <div id="custom-ph-modal" class="modal-overlay hidden">
+    <div class="modal" style="max-width:460px;">
+      <div class="modal-header">
+        <h3 id="custom-ph-title">Add custom placeholder</h3>
+        <button class="modal-close" onclick="closeCustomPhModal()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="field" style="margin-bottom:10px;">
+          <label>Key <span style="color:var(--text-muted);font-weight:400;">(letters, numbers, underscores — used as <code>{{'{{'}}key{{'}}'}}</code>)</span></label>
+          <input type="text" id="custom-ph-key" class="field-input" placeholder="company_name" autocomplete="off" oninput="checkCustomPhKeyLive()">
+        </div>
+        <div class="field" style="margin-bottom:10px;">
+          <label>Value</label>
+          <input type="text" id="custom-ph-value" class="field-input" placeholder="Acme Corp">
+        </div>
+        <div class="field" style="margin-bottom:6px;">
+          <label>Description <span style="color:var(--text-muted);font-weight:400;">(optional, shown in the reference list)</span></label>
+          <input type="text" id="custom-ph-desc" class="field-input" placeholder="Company name for email signatures">
+        </div>
+        <div id="custom-ph-error" style="font-size:12.5px;color:var(--status-critical);min-height:16px;"></div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" onclick="closeCustomPhModal()" type="button">Cancel</button>
+        <button class="btn primary" onclick="saveCustomPh()" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template editor modal -->
+  <div id="tmpl-edit-modal" class="modal-overlay hidden">
+    <div class="modal" style="max-width:720px;">
+      <div class="modal-header">
+        <h3 id="tmpl-edit-title">Edit template</h3>
+        <button class="modal-close" onclick="closeTmplEditModal()">✕</button>
+      </div>
+      <div class="modal-body" style="max-height:70vh;overflow-y:auto;">
+        <div class="field" style="margin-bottom:10px;">
+          <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+            <input type="checkbox" id="tmpl-enabled" checked>
+            <span>Use this customization (uncheck to keep it saved but switch back to the default for now)</span>
+          </label>
+        </div>
+
+        <div class="field" style="margin-bottom:14px;padding:10px 12px;border:1px solid var(--border);border-radius:var(--radius-sm);background:var(--bg-hover);">
+          <label style="font-size:12px;font-weight:600;margin-bottom:6px;display:block;">
+            Predefined variables — click <strong>+</strong> to insert into the field you last clicked in, or drag one onto Subject / Text / HTML directly
+          </label>
+          <div id="tmpl-chip-list" style="display:flex;flex-wrap:wrap;gap:6px;"></div>
+        </div>
+
+        <div class="field" style="margin-bottom:10px;position:relative;">
+          <label>Subject</label>
+          <input type="text" id="tmpl-subject" class="field-input" autocomplete="off">
+        </div>
+        <div class="field" style="margin-bottom:10px;position:relative;">
+          <label>Plain-text body</label>
+          <textarea id="tmpl-text" rows="7" class="code-textarea"></textarea>
+        </div>
+        <div class="field" style="margin-bottom:10px;position:relative;">
+          <label>HTML body</label>
+          <textarea id="tmpl-html" rows="12" class="code-textarea" style="font-family:var(--font-mono);font-size:12px;"></textarea>
+        </div>
+        <div id="tmpl-autocomplete" class="hidden"
+             style="position:fixed;z-index:2000;max-height:220px;overflow-y:auto;min-width:220px;max-width:320px;
+                    background:var(--bg-card,#1a1f2b);border:1px solid var(--accent);border-radius:var(--radius-sm);
+                    box-shadow:0 6px 20px rgba(0,0,0,.35);"></div>
+        <div id="tmpl-validation-hints" style="font-size:12px;margin-bottom:10px;"></div>
+        <div style="border-top:1px solid var(--border);padding-top:12px;">
+          <p style="font-size:13px;font-weight:600;margin-bottom:8px;">Preview — how the actual email will look <span style="font-weight:400;color:var(--text-muted);font-size:11.5px;">(sample data, updates as you type)</span></p>
+          <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+            <div style="background:var(--bg-hover);padding:10px 14px;border-bottom:1px solid var(--border);font-size:12.5px;">
+              <div style="display:flex;gap:6px;"><span style="color:var(--text-muted);min-width:52px;">From:</span><span>Net-monit &lt;alerts@yourcompany.com&gt;</span></div>
+              <div style="display:flex;gap:6px;"><span style="color:var(--text-muted);min-width:52px;">To:</span><span id="tmpl-preview-to">noc@yourcompany.com</span></div>
+              <div style="display:flex;gap:6px;margin-top:2px;"><span style="color:var(--text-muted);min-width:52px;">Subject:</span><strong id="tmpl-preview-subject"></strong></div>
+            </div>
+            <iframe id="tmpl-preview-html" style="width:100%;height:280px;border:none;display:block;background:#fff;"></iframe>
+          </div>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn secondary" onclick="resetTmpl()" type="button">Reset to default</button>
+        <button class="btn secondary" onclick="closeTmplEditModal()" type="button">Cancel</button>
+        <button class="btn primary" onclick="saveTmpl()" type="button">Save</button>
+      </div>
+    </div>
+  </div>
+  <div id="tab-thresholds" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Global Threshold Defaults</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px;">
+        Devices without per-device overrides use these values. Bold values below = per-device override active.
+      </p>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Metric</th><th>Unit</th><th>Warning</th><th>Critical</th><th>Enabled</th></tr></thead>
+        <tbody id="global-thresh-tbody"></tbody>
+      </table></div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+        <button id="btn-save-thresh" class="btn primary">Save</button>
+        <button id="btn-reset-thresh" class="btn secondary">Reset to built-in defaults</button>
+        <span id="s-thresh-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">Per-device threshold overrides</h2>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Device</th><th>CPU W/C</th><th>Mem W/C</th><th>Disk W/C</th><th>Latency W/C</th><th>Edit</th></tr></thead>
+        <tbody id="thresh-device-tbody"><tr><td colspan="6" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ DEVICES ═══ -->
+  <div id="tab-devices" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Quick-add device</h2>
+      <div class="form-grid">
+        <div class="field"><label>Device ID</label><input id="qd-id" type="text" placeholder="core-sw-01"></div>
+        <div class="field"><label>Display name</label><input id="qd-name" type="text" placeholder="Core Switch 01"></div>
+        <div class="field"><label>Host / IP</label><input id="qd-host" type="text" placeholder="192.168.1.1"></div>
+        <div class="field"><label>Poll interval (s)</label><input id="qd-interval" type="number" placeholder="30"></div>
+        <div class="field"><label>Device type</label>
+          <select id="qd-type">
+            <option value="network">Network</option><option value="firewall">Firewall</option>
+            <option value="windows">Windows</option><option value="linux">Linux</option>
+            <option value="nas">NAS</option><option value="other">Other</option>
+          </select></div>
+        <div class="field"><label>Check method</label>
+          <select id="qd-method">
+            <option value="ping">Ping (ICMP)</option>
+            <option value="snmp">SNMP</option>
+            <option value="powershell">PowerShell (Windows)</option>
+            <option value="ssh">SSH (Linux)</option>
+            <option value="disk_usage">Disk / Shared drive</option>
+          </select></div>
+      </div>
+      <!-- Credential fields injected here -->
+      <div id="qd-cred-fields"></div>
+      <!-- Metric checkboxes injected here -->
+      <div id="qd-monitor-metrics"></div>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
+        <button id="btn-sett-add-device" class="btn primary">Add device</button>
+        <span id="qd-status" style="font-size:13px;"></span>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:8px;">
+        ℹ New devices default to: alerts → admin emails only · escalation → disabled.
+        Change per-device settings via the Notify button below.
+      </p>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">🖧 Network Devices</h2>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Name / ID</th><th>Type</th><th>Method</th><th>Status</th><th>Test</th><th>Notify</th><th>Remove</th></tr></thead>
+        <tbody id="sett-devices-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">🌐 Sites</h2>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Name / ID</th><th>Type</th><th>Method</th><th>Status</th><th>Test</th><th>Notify</th><th>Remove</th></tr></thead>
+        <tbody id="sett-sites-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ USERS ═══ -->
+  <div id="tab-users" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Add user</h2>
+      <div class="form-grid">
+        <div class="field"><label>Email</label><input id="su-email" type="email" placeholder="user@company.com"></div>
+        <div class="field"><label>Role</label>
+          <select id="su-role">
+            <option value="admin">Admin (full access)</option>
+            <option value="supervisor">Supervisor (view everything, change nothing)</option>
+            <option value="user" selected>View (dashboard + speed test only)</option>
+          </select></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Access token</label>
+        <div style="display:flex;gap:8px;">
+          <input id="su-token" type="text" placeholder="Min 8 chars, upper+lower+number" style="flex:1;">
+          <button class="btn secondary small" onclick="suGenToken()">Generate</button>
+        </div>
+        <div style="margin-top:4px;background:var(--bg-hover);border-radius:3px;height:4px;overflow:hidden;">
+          <div id="su-token-bar" style="height:4px;width:0;transition:width .3s,background .3s;border-radius:3px;"></div>
+        </div>
+        <div id="su-token-hint" style="font-size:11px;margin-top:3px;color:var(--text-muted);"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:12px;align-items:center;">
+        <button class="btn primary" onclick="suAddUser()">Add user &amp; send welcome email</button>
+        <span id="su-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">Existing users</h2>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="su-users-tbody"><tr><td colspan="4" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ AUDIT (split into 2 sub-tabs) ═══ -->
+  <div id="tab-audit" class="stab-panel">
+    <div class="card">
+      <div style="display:flex;gap:8px;margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:0;">
+        <button class="stab active" id="audit-sub-user" data-auditsub="user"
+          onclick="switchAuditSub('user')" style="font-size:12px;">👤 User &amp; Device Actions</button>
+        <button class="stab" id="audit-sub-system" data-auditsub="system"
+          onclick="switchAuditSub('system')" style="font-size:12px;">🔔 System Events</button>
+      </div>
+      <!-- User / Device audit -->
+      <div id="audit-panel-user">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">User creation, deletion, token resets, device add/edit/remove.</p>
+        <div style="overflow-x:auto;"><table class="data-table">
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+          <tbody id="audit-user-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+      <!-- System events -->
+      <div id="audit-panel-system" style="display:none;">
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Config saves, escalation changes, threshold updates.</p>
+        <div style="overflow-x:auto;"><table class="data-table">
+          <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+          <tbody id="audit-device-tbody"><tr><td colspan="5" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+        </table></div>
+      </div>
+      <div style="margin-top:10px;">
+        <button class="btn secondary small" onclick="loadAuditLog()">↻ Refresh</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ ALERT LOG ═══ -->
+  <div id="tab-alerts" class="stab-panel">
+    <div class="card">
+      <h2 class="card-title">Alert Log (last 200)</h2>
+      <div class="info-grid" style="margin-bottom:14px;">
+        <div class="info-tile"><div class="info-val" id="asum-crit" style="color:var(--status-critical)">—</div><div class="info-lbl">Critical (24h)</div></div>
+        <div class="info-tile"><div class="info-val" id="asum-warn" style="color:var(--status-warning)">—</div><div class="info-lbl">Warning (24h)</div></div>
+        <div class="info-tile"><div class="info-val" id="asum-rec"  style="color:var(--status-ok)">—</div><div class="info-lbl">Recovered (24h)</div></div>
+        <div class="info-tile"><div class="info-val" id="asum-email">—</div><div class="info-lbl">Emails sent (24h)</div></div>
+      </div>
+      <div style="display:flex;gap:6px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+        <button id="af-all"  class="btn secondary small active" onclick="filterAlerts('all')">All</button>
+        <button id="af-crit" class="btn secondary small" onclick="filterAlerts('critical')">Critical</button>
+        <button id="af-warn" class="btn secondary small" onclick="filterAlerts('warning')">Warning</button>
+        <button id="af-rec"  class="btn secondary small" onclick="filterAlerts('recovered')">Recovered</button>
+        <button id="af-off"  class="btn secondary small" onclick="filterAlerts('offline')">Offline</button>
+        <input id="al-search-box" type="text" placeholder="Search device or message…" oninput="renderAlerts()"
+          style="flex:1;min-width:180px;background:var(--bg-panel);border:1px solid var(--border);border-radius:var(--radius-sm);padding:7px 10px;color:var(--text-primary);font-size:13px;">
+      </div>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Time</th><th>Device</th><th>Metric</th><th>State</th><th>Value</th><th>Email</th><th>Message</th></tr></thead>
+        <tbody id="alerts-tbody"><tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px">Loading…</td></tr></tbody>
+      </table></div>
+    </div>
+  </div>
+</div><!-- /settings-content -->
+
+<!-- Per-device notify modal -->
+<div id="sett-notify-modal" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:680px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header">
+      <span class="modal-title">⚙ Notification — <span id="snm-name"></span></span>
+      <button class="icon-btn" onclick="closeSettNotifyModal()">✕</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="checkbox" id="snm-enabled" style="width:16px;height:16px;">
+        <label for="snm-enabled" style="font-size:13px;cursor:pointer;">Notifications enabled for this device</label>
+      </div>
+      <div class="field">
+        <label>Notify emails — who receives alerts (To). Leave blank = admin emails.</label>
+        <textarea id="snm-notify-emails" rows="2" class="code-textarea" placeholder="noc@corp.com"></textarea>
+        <div id="snm-notify-email-picker" style="margin-top:5px;"></div>
+      </div>
+      <div>
+        <p style="font-size:13px;font-weight:600;margin-bottom:6px;">Per-metric thresholds</p>
+        <div id="snm-thresholds" style="overflow-x:auto;"></div>
+      </div>
+      <!-- Alert trigger mode -->
+      <div class="field" style="border-top:1px solid var(--border);padding-top:12px;">
+        <label style="font-size:13px;font-weight:600;">Alert trigger mode</label>
+        <p style="font-size:12px;color:var(--text-muted);margin:2px 0 6px;">
+          "Wait to confirm" (default) delays the first email until Level 1 below has elapsed (default 60s),
+          so short blips that recover on their own don't email anyone — they still appear in the Alert Event Log.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <select id="snm-trigger-mode" style="max-width:280px;" onchange="toggleSnmWaitField()">
+            <option value="sustained">Wait to confirm, then alert (default)</option>
+            <option value="immediate">Immediate</option>
+          </select>
+          <span id="snm-wait-field" style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            Wait
+            <input type="number" id="snm-wait-sec" min="1" value="60" style="width:80px;"
+              title="Any number of seconds — 30, 60, 300, 600, whatever you need." onchange="syncSnmWaitToL1()">
+            seconds, then alert
+          </span>
+        </div>
+      </div>
+      <!-- Repeat-alert cooldown (V8.4) -->
+      <div class="field" style="border-top:1px solid var(--border);padding-top:12px;">
+        <label style="font-size:13px;font-weight:600;">Repeat-alert cooldown <span style="font-weight:400;color:var(--text-muted);">(V8.4)</span></label>
+        <p style="font-size:12px;color:var(--text-muted);margin:2px 0 6px;">
+          Minimum gap between repeat alerts once the first one has fired — prevents a flapping metric from
+          emailing on every up/down. Acknowledging an alert always takes priority: no further alerts, even
+          after this cooldown, until it's resolved. Leave on "Immediate" to use this account's global default.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <select id="snm-notify-mode" style="max-width:280px;" onchange="toggleSnmCooldownField()">
+            <option value="immediate">Immediate (default)</option>
+            <option value="cooldown">Cooldown</option>
+          </select>
+          <span id="snm-cooldown-field" style="display:none;align-items:center;gap:6px;font-size:13px;">
+            Minimum
+            <input type="number" id="snm-cooldown-sec" min="1" value="300" style="width:90px;">
+            seconds between repeat alerts
+          </span>
+        </div>
+      </div>
+      <!-- Escalation toggles -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;">
+        <p style="font-size:13px;font-weight:600;margin-bottom:4px;">Escalation</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">
+          Toggle levels ON/OFF individually. Pre-checked emails are already receiving escalations.
+        </p>
+        <div id="snm-esc-container"></div>
+      </div>
+      <div style="display:flex;gap:10px;align-items:center;">
+        <button class="btn primary" onclick="saveSettNotifyModal()">Save</button>
+        <button class="btn secondary" onclick="closeSettNotifyModal()">Cancel</button>
+        <span id="snm-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+</div>
+
+  <!-- LICENSE / ACTIVATION TAB -->
+  <div id="tab-license" class="stab-panel">
+    <div style="max-width:720px;">
+
+      <!-- Status Card -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header">
+          <span class="card-title">License Status</span>
+          <span id="settings-lic-badge" class="role-badge" style="font-size:13px;padding:4px 12px;">Loading...</span>
+        </div>
+        <div style="padding:18px;">
+          <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-bottom:16px;">
+            <div class="stat-box">
+              <div class="stat-label">Status</div>
+              <div class="stat-value" id="settings-lic-state">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Trial Days Left</div>
+              <div class="stat-value" id="settings-lic-days">—</div>
+            </div>
+            <div class="stat-box">
+              <div class="stat-label">Trial Started</div>
+              <div class="stat-value" id="settings-lic-start">—</div>
+            </div>
+          </div>
+          <div id="settings-lic-msg" style="display:none;padding:10px 14px;border-radius:6px;font-size:13px;line-height:1.6;"></div>
+        </div>
+      </div>
+
+      <!-- Device Fingerprint Card -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header">
+          <span class="card-title">Device Fingerprint</span>
+          <span style="font-size:12px;color:var(--text-muted);">Provide both values to your license administrator to generate a key</span>
+        </div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;line-height:1.6;">
+            These two 16-character codes uniquely identify this server installation.
+            Send them to your license administrator who will use the License Key Generator tool to generate your key.
+          </p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;">
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;">
+                Device ID <span title="Based on: hostname + MAC + OS + CPU" style="cursor:help;opacity:.6;">&#9432;</span>
+              </label>
+              <div style="position:relative;">
+                <input id="settings-did" type="text" readonly
+                  style="width:100%;font-family:monospace;font-size:14px;font-weight:700;letter-spacing:2px;
+                         background:var(--surface);border:2px solid var(--border);border-radius:6px;
+                         padding:10px 40px 10px 12px;color:var(--text-primary);text-transform:uppercase;"
+                  value="Loading...">
+                <button onclick="copySettField('settings-did','copy-sdid')" title="Copy"
+                  style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-muted);"
+                  id="copy-sdid">&#10697;</button>
+              </div>
+              <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">Hardware fingerprint</p>
+            </div>
+            <div>
+              <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:.5px;">
+                Activation Code <span title="Based on: Python version + install path" style="cursor:help;opacity:.6;">&#9432;</span>
+              </label>
+              <div style="position:relative;">
+                <input id="settings-ac" type="text" readonly
+                  style="width:100%;font-family:monospace;font-size:14px;font-weight:700;letter-spacing:2px;
+                         background:var(--surface);border:2px solid var(--border);border-radius:6px;
+                         padding:10px 40px 10px 12px;color:var(--text-primary);text-transform:uppercase;"
+                  value="Loading...">
+                <button onclick="copySettField('settings-ac','copy-sac')" title="Copy"
+                  style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;font-size:16px;color:var(--text-muted);"
+                  id="copy-sac">&#10697;</button>
+              </div>
+              <p style="font-size:11px;color:var(--text-muted);margin-top:4px;">Software fingerprint</p>
+            </div>
+          </div>
+          <div style="margin-top:12px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+            <button class="btn secondary" onclick="copySettBoth()" id="copy-both-sett-btn">&#10697; Copy Both Values</button>
+            <span id="copy-both-sett-ok" style="font-size:12px;color:var(--status-ok);display:none;">&#10003; Copied to clipboard</span>
+            <span style="font-size:12px;color:var(--text-muted);">— paste into the License Key Generator tool</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Activate Card -->
+      <div class="card" style="margin-bottom:18px;" id="settings-activate-card">
+        <div class="card-header">
+          <span class="card-title">Enter License Key</span>
+        </div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+            Enter the 10-character key provided by your administrator.
+            Format: <code style="font-family:monospace;font-size:14px;font-weight:700;letter-spacing:2px;">XXXXX-XXXXX</code>
+          </p>
+          <div id="settings-activate-locked" style="display:none;padding:10px 14px;background:rgba(242,164,30,.08);border:1px solid rgba(242,164,30,.25);border-radius:6px;font-size:13px;color:var(--status-warning);margin-bottom:12px;">
+            &#128274; Sign in as <strong>Admin</strong> to activate a license key. <a href="#" onclick="window.openLogin&&window.openLogin()" style="color:var(--accent);margin-left:4px;">Sign in</a>
+          </div>
+          <div id="settings-activate-form" style="display:none;">
+            <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+              <div style="flex:1;min-width:200px;">
+                <input id="settings-key-input" type="text" maxlength="11" placeholder="XXXXX-XXXXX"
+                  style="width:100%;font-family:monospace;font-size:18px;font-weight:700;letter-spacing:3px;
+                         text-align:center;text-transform:uppercase;border:2px solid var(--border);
+                         border-radius:6px;padding:10px 14px;background:var(--surface);color:var(--text-primary);"
+                  oninput="settFormatKey(this)" onkeydown="if(event.key==='Enter')settActivate()">
+                <p style="font-size:11px;color:var(--text-muted);margin-top:4px;text-align:center;">Letters and digits only</p>
+              </div>
+              <button class="btn primary" onclick="settActivate()" id="settings-activate-btn"
+                style="padding:10px 22px;font-size:14px;white-space:nowrap;">
+                &#10003; Activate
+              </button>
+            </div>
+            <div id="settings-activate-result" style="display:none;margin-top:10px;padding:10px 14px;border-radius:6px;font-size:14px;font-weight:600;"></div>
+          </div>
+          <div id="settings-already-licensed" style="display:none;padding:10px 14px;background:rgba(34,139,34,0.1);border:1px solid rgba(34,139,34,0.3);border-radius:6px;font-size:14px;color:var(--status-ok);">
+            &#10003; This installation is fully licensed. No action needed.
+          </div>
+        </div>
+      </div>
+
+      <!-- How it works -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header"><span class="card-title">How to Get a License Key</span></div>
+        <div style="padding:18px;">
+          <ol style="margin:0;padding-left:20px;font-size:13px;line-height:2.2;color:var(--text-primary);">
+            <li>Copy your <strong>Device ID</strong> and <strong>Activation Code</strong> from above.</li>
+            <li>Send both values to your license administrator.</li>
+            <li>The administrator opens the <strong>License Key Generator</strong> tool, pastes both values, and generates a <strong>XXXXX-XXXXX</strong> key.</li>
+            <li>Enter that key in the box above and click <strong>Activate</strong>.</li>
+          </ol>
+          <div style="margin-top:14px;padding:10px 14px;background:var(--surface);border-left:3px solid var(--status-warning);border-radius:0 6px 6px 0;font-size:13px;">
+            <strong>Note:</strong> Each key is unique to this server. A key from a different server will not work here.
+            Contact: <a href="mailto:abuabdullah.be@outlook.com" style="color:var(--accent);">abuabdullah.be@outlook.com</a>
+          </div>
+        </div>
+      </div>
+
+      <!-- Restricted features warning (shown when expired) -->
+      <div class="card" id="settings-restricted-card" style="display:none;margin-bottom:18px;border:1px solid var(--status-critical);">
+        <div class="card-header" style="background:rgba(180,30,30,0.1);">
+          <span class="card-title" style="color:var(--status-critical);">&#9888; Restricted Mode — Features Disabled</span>
+        </div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;margin-bottom:12px;">Your 30-day trial has expired. These features are disabled until you activate a license:</p>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+            <div style="color:var(--status-critical);">&#10008; Device host IPs hidden</div>
+            <div style="color:var(--status-critical);">&#10008; Metric values hidden</div>
+            <div style="color:var(--status-critical);">&#10008; Admin Panel locked</div>
+            <div style="color:var(--status-critical);">&#10008; Settings locked</div>
+            <div style="color:var(--status-critical);">&#10008; Device management locked</div>
+            <div style="color:var(--status-ok);">&#10004; Dashboard tiles visible</div>
+            <div style="color:var(--status-ok);">&#10004; This page accessible</div>
+            <div style="color:var(--status-ok);">&#10004; Activation always works</div>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;font-size:12px;color:var(--text-muted);padding:8px 0 20px;">
+        Net-monit V11.0 · Copyright © 2024–2026 Abdullah | Abdullah-InfoXtek.com &middot;
+        <a href="mailto:abuabdullah.be@outlook.com" style="color:var(--text-muted);">abuabdullah.be@outlook.com</a>
+      </div>
+    </div>
+  </div>
+
+  <!-- APPEARANCE TAB (V7.2) -->
+  <div id="tab-appearance" class="stab-panel">
+    <div style="max-width:640px;">
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header"><span class="card-title">Theme</span></div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+            Choose how Net-monit looks on this account. "Match system" follows your
+            operating system's light/dark setting automatically.
+          </p>
+          <div id="theme-switcher-settings" class="theme-switcher" style="display:inline-flex;"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header"><span class="card-title">Accent Colour</span></div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">
+            Pick an accent colour used for buttons, links, active states, and highlights
+            throughout the app. Saved to your account and applied on every device you sign in from.
+          </p>
+          <div id="accent-picker-settings" class="accent-swatches"></div>
+        </div>
+      </div>
+
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header"><span class="card-title">Background Colour</span></div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:6px;">
+            Override the page background colour. Pick "Default" to go back to the normal
+            theme background. If a background image (below) is set, it's layered on top
+            of this colour. Picking a colour previews it immediately — press Save to keep it.
+          </p>
+          <div id="bg-color-picker-settings" class="accent-swatches"></div>
+          <div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
+            <button class="btn" id="bg-color-save-btn" type="button">Save</button>
+            <span id="bg-color-status" style="font-size:12px;color:var(--text-muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-header"><span class="card-title">Background Image</span></div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+            Use your own picture as the page background instead of a flat colour. Covers the
+            full window and stays fixed while you scroll. PNG, JPG, WEBP, or GIF — under 4MB.
+            Choosing a file previews it immediately — press Save to keep it.
+          </p>
+          <div id="bg-image-preview" style="margin-bottom:12px;display:none;">
+            <img id="bg-image-preview-img" src="" alt="Current background"
+              style="max-height:90px;max-width:100%;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+            <button class="btn secondary small" onclick="clearBgImage()" type="button" style="margin-left:10px;">Remove</button>
+          </div>
+          <input type="file" id="bg-image-file" accept="image/png,image/jpeg,image/webp,image/gif">
+          <div style="display:flex;align-items:center;gap:12px;margin-top:14px;">
+            <button class="btn" id="bg-image-save-btn" type="button">Save</button>
+            <span id="bg-image-status" style="font-size:12px;color:var(--text-muted);"></span>
+          </div>
+        </div>
+      </div>
+
+      <div style="text-align:center;font-size:12px;color:var(--text-muted);padding:20px 0;">
+        Net-monit V11.0 · Copyright © 2024–2026 Abdullah | Abdullah-InfoXtek.com
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: SMS & CALL ALERTS (V8.5) ═══ -->
+  <div id="tab-smscall" class="stab-panel">
+    <div style="max-width:760px;">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:18px;">
+        Send SMS text messages and/or place voice calls (text-to-speech) as part of escalation, alongside
+        or instead of email. SMS can be used at Level 1 (the very first alert) just as easily as at Level 2/3
+        — whether it's your primary or secondary channel is entirely up to how you configure each device's
+        (or the global default's) escalation levels, in the Escalation tab and each device's Notify settings.
+        This tab only configures <em>how</em> Net-monit reaches your SMS/voice provider — which numbers get
+        contacted at which level is set per-device (or globally) elsewhere.
+      </p>
+
+      <!-- SMS Gateway -->
+      <div class="card" style="margin-bottom:18px;">
+        <div class="card-header"><span class="card-title">SMS Gateway</span></div>
+        <div style="padding:18px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+            <input type="checkbox" id="sms-enabled" style="width:16px;height:16px;"> Enable SMS alerts
+          </label>
+
+          <div class="field" style="margin-bottom:12px;">
+            <label>Preset <span style="color:var(--text-muted);font-weight:400;">(fills in the fields below as a starting point — you'll still need to add your own credentials)</span></label>
+            <select id="sms-preset" onchange="applyGatewayPreset('sms')"></select>
+          </div>
+          <div id="sms-preset-note" style="font-size:12px;color:var(--text-muted);margin-bottom:14px;padding:10px 12px;background:var(--bg-hover);border-radius:var(--radius-sm);display:none;"></div>
+
+          <div style="display:grid;grid-template-columns:100px 1fr;gap:10px;margin-bottom:10px;">
+            <div class="field"><label>Method</label>
+              <select id="sms-method"><option>POST</option><option>GET</option></select></div>
+            <div class="field"><label>Gateway URL</label>
+              <input type="text" id="sms-url" class="field-input" placeholder="https://api.example.com/send-sms" autocomplete="off"></div>
+          </div>
+          <div class="field" style="margin-bottom:10px;">
+            <label>Headers <span style="color:var(--text-muted);font-weight:400;">(JSON object, one key per header)</span></label>
+            <textarea id="sms-headers" rows="2" class="code-textarea" placeholder='{"Content-Type": "application/json"}'></textarea>
+          </div>
+          <div class="field" style="margin-bottom:14px;">
+            <label>Body template <span style="color:var(--text-muted);font-weight:400;">— use <code>{{'{{'}}phone{{'}}'}}</code> and <code>{{'{{'}}message{{'}}'}}</code>, substituted in automatically</span></label>
+            <textarea id="sms-body" rows="2" class="code-textarea" placeholder='{"to": "{{phone}}", "text": "{{message}}"}'></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr 1fr;gap:10px;margin-bottom:14px;">
+            <div class="field"><label>Auth</label>
+              <select id="sms-auth"><option value="none">None</option><option value="basic">Basic Auth</option></select></div>
+            <div class="field"><label>Username</label>
+              <input type="text" id="sms-auth-user" class="field-input" autocomplete="off"></div>
+            <div class="field"><label>Password / Token</label>
+              <input type="password" id="sms-auth-pass" class="field-input" placeholder="Leave blank to keep existing" autocomplete="new-password"></div>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="btn primary" onclick="saveGateway('sms')" type="button">Save SMS Gateway</button>
+            <input type="text" id="sms-test-phone" class="field-input" placeholder="+1 555 0100" style="max-width:160px;">
+            <button class="btn secondary" onclick="testGateway('sms')" type="button">Send test</button>
+          </div>
+          <div id="sms-status" style="font-size:12px;margin-top:10px;"></div>
+        </div>
+      </div>
+
+      <!-- Call Gateway -->
+      <div class="card">
+        <div class="card-header"><span class="card-title">Voice Call Gateway</span></div>
+        <div style="padding:18px;">
+          <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+            <input type="checkbox" id="call-enabled" style="width:16px;height:16px;"> Enable voice-call alerts
+          </label>
+
+          <div class="field" style="margin-bottom:12px;">
+            <label>Preset</label>
+            <select id="call-preset" onchange="applyGatewayPreset('call')"></select>
+          </div>
+          <div id="call-preset-note" style="font-size:12px;color:var(--text-muted);margin-bottom:14px;padding:10px 12px;background:var(--bg-hover);border-radius:var(--radius-sm);display:none;"></div>
+
+          <div style="display:grid;grid-template-columns:100px 1fr;gap:10px;margin-bottom:10px;">
+            <div class="field"><label>Method</label>
+              <select id="call-method"><option>POST</option><option>GET</option></select></div>
+            <div class="field"><label>Gateway URL</label>
+              <input type="text" id="call-url" class="field-input" placeholder="https://api.example.com/make-call" autocomplete="off"></div>
+          </div>
+          <div class="field" style="margin-bottom:10px;">
+            <label>Headers <span style="color:var(--text-muted);font-weight:400;">(JSON object)</span></label>
+            <textarea id="call-headers" rows="2" class="code-textarea"></textarea>
+          </div>
+          <div class="field" style="margin-bottom:14px;">
+            <label>Body template <span style="color:var(--text-muted);font-weight:400;">— <code>{{'{{'}}phone{{'}}'}}</code> / <code>{{'{{'}}message{{'}}'}}</code></span></label>
+            <textarea id="call-body" rows="2" class="code-textarea"></textarea>
+          </div>
+          <div style="display:grid;grid-template-columns:120px 1fr 1fr;gap:10px;margin-bottom:14px;">
+            <div class="field"><label>Auth</label>
+              <select id="call-auth"><option value="none">None</option><option value="basic">Basic Auth</option></select></div>
+            <div class="field"><label>Username</label>
+              <input type="text" id="call-auth-user" class="field-input" autocomplete="off"></div>
+            <div class="field"><label>Password / Token</label>
+              <input type="password" id="call-auth-pass" class="field-input" placeholder="Leave blank to keep existing" autocomplete="new-password"></div>
+          </div>
+
+          <div style="display:flex;gap:10px;align-items:center;flex-wrap:wrap;border-top:1px solid var(--border);padding-top:14px;">
+            <button class="btn primary" onclick="saveGateway('call')" type="button">Save Call Gateway</button>
+            <input type="text" id="call-test-phone" class="field-input" placeholder="+1 555 0100" style="max-width:160px;">
+            <button class="btn secondary" onclick="testGateway('call')" type="button">Send test call</button>
+          </div>
+          <div id="call-status" style="font-size:12px;margin-top:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: ORGANISATION (V8.5) ═══ -->
+  <div id="tab-organisation" class="stab-panel">
+    <div style="max-width:520px;">
+      <div class="card">
+        <div class="card-header"><span class="card-title">Organisation branding</span></div>
+        <div style="padding:18px;">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:16px;">
+            Shown in the top bar, next to the Net-monit brand, on every page. Leave both blank to
+            show no organisation branding.
+          </p>
+          <div class="field" style="margin-bottom:16px;">
+            <label>Organisation name</label>
+            <input type="text" id="org-name" class="field-input" placeholder="Acme Corporation">
+          </div>
+          <div class="field" style="margin-bottom:16px;">
+            <label>Organisation name colour</label>
+            <div style="display:flex;align-items:center;gap:10px;">
+              <input type="color" id="org-color" value="#8b95a5" style="width:44px;height:32px;padding:2px;background:var(--bg-panel);border:1px solid var(--border);border-radius:6px;cursor:pointer;">
+              <span style="font-size:12px;color:var(--text-muted);">Shown bold, same weight as the Net-monit name</span>
+            </div>
+          </div>
+          <div class="field" style="margin-bottom:16px;">
+            <label>Organisation logo <span style="color:var(--text-muted);font-weight:400;">(PNG, JPG, GIF, WEBP, or SVG — under 2MB)</span></label>
+            <div id="org-logo-preview" style="margin-bottom:10px;display:none;">
+              <img id="org-logo-img" src="" alt="Current logo" style="max-height:60px;max-width:260px;object-fit:contain;background:var(--bg-hover);padding:8px;border-radius:6px;">
+              <button class="btn secondary small" onclick="removeOrgLogo()" type="button" style="margin-left:10px;">Remove</button>
+            </div>
+            <input type="file" id="org-logo-file" accept="image/png,image/jpeg,image/gif,image/webp,image/svg+xml">
+          </div>
+          <button class="btn primary" onclick="saveOrganisation()" type="button">Save</button>
+          <div id="org-status" style="font-size:12px;margin-top:10px;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/settings.js"></script>
+<script>
+function switchAuditSub(sub){
+  document.querySelectorAll("[id^='audit-sub-']").forEach(b=>b.classList.remove("active"));
+  document.getElementById("audit-sub-"+sub)?.classList.add("active");
+  document.getElementById("audit-panel-user").style.display   = sub==="user"   ? "" : "none";
+  document.getElementById("audit-panel-system").style.display = sub==="system" ? "" : "none";
+}
+</script>
+
+<script>
+/* ── Settings page License tab ─────────────────────────────────── */
+function loadSettingsLicense() {
+  fetch('/api/license/status')
+    .then(r => r.json())
+    .then(d => {
+      document.getElementById('settings-did').value = d.device_id || '';
+      document.getElementById('settings-ac').value  = d.activation_code || '';
+
+      const badge = document.getElementById('settings-lic-badge');
+      const states = {
+        valid:   { text: '&#10003; Licensed',      bg:'#1a4a1a', color:'#5dd45d' },
+        trial:   { text: '&#9203; Trial Active',   bg:'#3a3000', color:'#ffd700' },
+        expired: { text: '&#9888; Trial Expired',  bg:'#4a1a1a', color:'#ff6b6b' },
+        invalid: { text: '&#10008; Invalid Key',   bg:'#4a1a1a', color:'#ff6b6b' },
+      };
+      const s = states[d.state] || { text: d.state, bg:'#333', color:'#fff' };
+      badge.innerHTML = s.text;
+      badge.style.background = s.bg;
+      badge.style.color = s.color;
+      badge.style.border = 'none';
+
+      document.getElementById('settings-lic-state').textContent =
+        d.state==='valid' ? 'Fully Licensed' :
+        d.state==='trial' ? 'Free Trial'     :
+        d.state==='expired'? 'Expired'       : 'Invalid Key';
+
+      document.getElementById('settings-lic-days').textContent =
+        d.state==='valid' ? 'N/A (Licensed)' :
+        (d.trial_days_remaining + ' of ' + d.trial_total_days + ' days');
+
+      document.getElementById('settings-lic-start').textContent = d.trial_start || '—';
+
+      const msgEl = document.getElementById('settings-lic-msg');
+      if (d.state === 'trial' && d.trial_days_remaining <= 7) {
+        msgEl.style.display = 'block';
+        msgEl.style.background = 'rgba(180,130,0,0.12)';
+        msgEl.style.border = '1px solid #b8860b';
+        msgEl.innerHTML = '&#9888; <strong>Trial expires soon</strong> — ' + d.trial_days_remaining + ' day(s) remaining. Activate a license key now.';
+      } else if (d.state === 'expired' || d.state === 'invalid') {
+        msgEl.style.display = 'block';
+        msgEl.style.background = 'rgba(180,30,30,0.12)';
+        msgEl.style.border = '1px solid #b22222';
+        msgEl.innerHTML = '&#10008; <strong>License required</strong> — Free trial ended. Enter your license key below to restore full access.';
+        document.getElementById('settings-restricted-card').style.display = '';
+      }
+
+      const role = sessionStorage.getItem('netmon_role');
+      if (d.state === 'valid') {
+        document.getElementById('settings-activate-form').style.display = 'none';
+        document.getElementById('settings-activate-locked').style.display = 'none';
+        document.getElementById('settings-already-licensed').style.display = '';
+      } else if (role === 'admin') {
+        document.getElementById('settings-activate-form').style.display = '';
+        document.getElementById('settings-activate-locked').style.display = 'none';
+        document.getElementById('settings-already-licensed').style.display = 'none';
+      } else {
+        document.getElementById('settings-activate-form').style.display = 'none';
+        document.getElementById('settings-activate-locked').style.display = '';
+        document.getElementById('settings-already-licensed').style.display = 'none';
+      }
+    })
+    .catch(() => {
+      document.getElementById('settings-did').value = 'Error loading';
+      document.getElementById('settings-ac').value  = 'Error loading';
+    });
+}
+
+function settFormatKey(el) {
+  let v = el.value.replace(/[^0-9A-Za-z]/g,'').toUpperCase().slice(0,10);
+  if (v.length > 5) v = v.slice(0,5) + '-' + v.slice(5);
+  el.value = v;
+}
+
+function settActivate() {
+  const key = document.getElementById('settings-key-input').value.trim().toUpperCase();
+  if (!key || key.length < 11) {
+    showSettResult(false, 'Please enter a valid XXXXX-XXXXX license key.');
+    return;
+  }
+  const btn = document.getElementById('settings-activate-btn');
+  btn.textContent = 'Activating...';
+  btn.disabled = true;
+
+  fetch('/api/license/activate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Token': sessionStorage.getItem('netmon_session') || ''
+    },
+    body: JSON.stringify({ license_key: key })
+  })
+  .then(r => r.json())
+  .then(d => {
+    btn.innerHTML = '&#10003; Activate';
+    btn.disabled = false;
+    showSettResult(d.ok, d.message);
+    if (d.ok) setTimeout(loadSettingsLicense, 800);
+  })
+  .catch(() => {
+    btn.innerHTML = '&#10003; Activate';
+    btn.disabled = false;
+    showSettResult(false, 'Network error — please try again.');
+  });
+}
+
+function showSettResult(ok, msg) {
+  const el = document.getElementById('settings-activate-result');
+  el.style.display = '';
+  el.style.background = ok ? 'rgba(34,139,34,0.12)' : 'rgba(180,30,30,0.12)';
+  el.style.border = ok ? '1px solid #2d7d2d' : '1px solid #7d2d2d';
+  el.style.color = ok ? 'var(--status-ok)' : 'var(--status-critical)';
+  el.textContent = (ok ? '&#10003; ' : '&#10008; ') + msg;
+}
+
+function copySettField(fieldId, btnId) {
+  const val = document.getElementById(fieldId).value;
+  navigator.clipboard.writeText(val).then(() => {
+    const btn = document.getElementById(btnId);
+    const orig = btn.innerHTML;
+    btn.innerHTML = '&#10003;';
+    btn.style.color = 'var(--status-ok)';
+    setTimeout(() => { btn.innerHTML = orig; btn.style.color = ''; }, 1500);
+  });
+}
+
+function copySettBoth() {
+  const did = document.getElementById('settings-did').value;
+  const ac  = document.getElementById('settings-ac').value;
+  const text = 'Device ID:       ' + did + '\nActivation Code: ' + ac;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-both-sett-btn');
+    const ok  = document.getElementById('copy-both-sett-ok');
+    btn.textContent = '&#10003; Copied!';
+    ok.style.display = 'inline';
+    setTimeout(() => { btn.innerHTML = '&#10697; Copy Both Values'; ok.style.display = 'none'; }, 2000);
+  });
+}
+
+// Load license data when license tab is clicked
+document.addEventListener('DOMContentLoaded', function() {
+  const licBtn = document.getElementById('license-tab-btn');
+  if (licBtn) {
+    licBtn.addEventListener('click', function() {
+      setTimeout(loadSettingsLicense, 100);
+    });
+  }
+});
+
+// Also load immediately if license tab is visible on page load
+if (window.location.hash === '#license') {
+  setTimeout(loadSettingsLicense, 300);
+}
+</script>
+
+{% endblock %}

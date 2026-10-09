@@ -1,0 +1,439 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Sites Monitor</h1>
+    <p class="page-sub">Monitor web application URLs for uptime, response time, SSL expiry, and content. Full add/edit/test/remove control lives here — the Devices page shows hardware only.</p>
+  </div>
+  <div>
+    <button class="btn primary" onclick="openSiteModal()">+ Add Site</button>
+  </div>
+</div>
+
+<!-- Quick check -->
+<div class="card" style="margin-bottom:18px;">
+  <h2 class="card-title" style="padding:14px 22px 6px;">Quick Site Check</h2>
+  <p style="padding:0 22px;margin:0 0 10px;font-size:12px;color:var(--text-muted);">
+    Enter a bare domain, a full URL, or an IP address — any of these work:
+    <code>google.com</code>, <code>www.google.com</code>, <code>https://google.com</code>, <code>8.8.8.8</code>
+  </p>
+  <div style="padding:0 22px 18px;display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;">
+    <div style="flex:1;min-width:240px;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Site or IP to check:</label>
+      <input id="quick-url" type="text" placeholder="google.com"
+             style="width:100%;background:var(--bg-input);border:1px solid var(--border);
+                    border-radius:var(--radius-sm);padding:8px 12px;color:var(--text-primary);
+                    font-family:var(--font-mono);font-size:13px;"
+             onkeydown="if(event.key==='Enter')quickCheck()">
+    </div>
+    <div style="min-width:100px;">
+      <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:4px;">Expected status:</label>
+      <input id="quick-status" type="number" value="200"
+             style="width:100%;background:var(--bg-input);border:1px solid var(--border);
+                    border-radius:var(--radius-sm);padding:8px 12px;color:var(--text-primary);font-size:13px;">
+    </div>
+    <button class="btn secondary" onclick="quickCheck()" style="padding:9px 18px;">Check Now</button>
+  </div>
+  <div id="quick-result" style="margin:0 22px 18px;display:none;"></div>
+</div>
+
+<!-- Monitored sites -->
+<div class="card">
+  <div style="padding:14px 22px 6px;display:flex;justify-content:space-between;align-items:center;">
+    <h2 class="card-title" style="margin:0;">Monitored Sites</h2>
+    <button class="btn" style="font-size:12px;" onclick="loadSites()">&#8635; Refresh</button>
+  </div>
+  <div id="sites-list" style="padding:0 22px 18px;">
+    <div style="color:var(--text-muted);text-align:center;padding:32px;">Loading...</div>
+  </div>
+</div>
+
+<!-- Add / Edit modal (shared) -->
+<div id="site-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:520px;max-height:90vh;overflow-y:auto;">
+    <div class="modal-header">
+      <span class="modal-title" id="site-modal-title">Add Site</span>
+      <button class="icon-btn" onclick="closeSiteModal()">&#10005;</button>
+    </div>
+    <div style="padding:18px 22px;">
+      <label class="field-label">Site URL or IP *</label>
+      <input id="m-url" type="text" placeholder="google.com" class="field-input">
+      <p style="font-size:11px;color:var(--text-muted);margin:4px 0 0;">
+        Bare domains and IPs are accepted — https:// is assumed if no scheme is given.
+      </p>
+
+      <label class="field-label" style="margin-top:12px;">Display name *</label>
+      <input id="m-name" type="text" placeholder="My Web App" class="field-input">
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+        <div>
+          <label class="field-label">Expected HTTP status</label>
+          <input id="m-status" type="number" value="200" class="field-input">
+        </div>
+        <div>
+          <label class="field-label">Timeout (seconds)</label>
+          <input id="m-timeout" type="number" value="10" class="field-input">
+        </div>
+      </div>
+
+      <label class="field-label" style="margin-top:12px;">Keyword must be present (optional)</label>
+      <input id="m-kw" type="text" placeholder="e.g. a word from your page's title or heading" class="field-input">
+      <p style="font-size:11.5px;color:var(--text-muted);margin:4px 0 0;">
+        Checks the page's raw HTML for this exact word/phrase (not case-sensitive). The site is marked
+        <strong>Offline</strong> if it's missing — even if the site itself is up and returning 200 OK.
+        Only works for text your server sends directly in the page; it can't see anything added
+        <em>after</em> the page loads via JavaScript. To test this field, use a word you already know is
+        on that page (e.g. part of its page title) — a keyword that just isn't on the page will correctly
+        show as missing, which isn't a fault, it's the check doing its job.
+      </p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+        <div>
+          <label class="field-label">Warn if slower than (ms, optional)</label>
+          <input id="m-maxms" type="number" placeholder="2000" class="field-input">
+        </div>
+        <div>
+          <label class="field-label">Poll interval (seconds)</label>
+          <input id="m-poll" type="number" value="60" class="field-input">
+        </div>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:12px;">
+        <input type="checkbox" id="m-ssl" checked style="width:16px;height:16px;">
+        <label for="m-ssl" style="font-size:13px;color:var(--text-secondary);">
+          Check SSL certificate expiry (warn if &lt;30 days)
+        </label>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:10px;margin-top:10px;">
+        <input type="checkbox" id="m-show-dashboard" checked style="width:16px;height:16px;">
+        <label for="m-show-dashboard" style="font-size:13px;color:var(--text-secondary);">
+          Show on Infrastructure Overview dashboard
+        </label>
+      </div>
+
+      <div id="m-err" style="color:var(--status-critical);font-size:12px;margin-top:10px;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+        <button class="btn" onclick="closeSiteModal()">Cancel</button>
+        <button class="btn primary" id="site-modal-save" onclick="saveSite()">Add Site</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.field-label { display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px; }
+.field-input { width:100%;background:var(--bg-input);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:8px 12px;color:var(--text-primary);
+  font-size:13px;box-sizing:border-box; }
+.modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;z-index:1000; }
+.site-row { display:grid;grid-template-columns:3fr 1fr 1fr 1fr 1fr auto auto;
+  gap:8px;align-items:center;padding:10px 0;border-bottom:1px solid var(--border);font-size:13px; }
+.site-row:last-child { border-bottom:none; }
+.site-row-hdr { color:var(--text-muted);font-size:11px;text-transform:uppercase;
+  font-weight:600;letter-spacing:.5px; }
+.status-badge { display:inline-block;padding:2px 10px;border-radius:10px;
+  font-size:11px;font-weight:700; }
+.badge-ok       { background:var(--status-ok-bg);color:var(--status-ok); }
+.badge-critical { background:var(--status-critical-bg);color:var(--status-critical); }
+.badge-warning  { background:var(--status-warning-bg);color:var(--status-warning); }
+.badge-unknown  { background:var(--bg-hover);color:var(--text-muted); }
+</style>
+
+<script>
+let editingId = null;   // null = Add mode, otherwise editing this device id
+let sitesCache = [];
+
+/* -------------------------------------------------------------------
+   Normalise whatever the person typed into a fetchable https://... URL.
+   Accepts: bare domain, www.domain, full URL with scheme, or a raw IP.
+   ------------------------------------------------------------------- */
+function normalizeSiteUrl(raw) {
+  let v = (raw || '').trim();
+  if (!v) return '';
+  if (!/^https?:\/\//i.test(v)) v = 'https://' + v;
+  return v;
+}
+
+async function loadSites() {
+  try {
+    const r = await fetch('/api/urlmonitor/results',
+                          {headers:{'X-Session-Token':getSession()}});
+    const data = await r.json();
+    sitesCache = Array.isArray(data) ? data : [];
+    renderSites(sitesCache);
+  } catch(e) {
+    document.getElementById('sites-list').innerHTML =
+      '<div style="color:var(--status-critical);text-align:center;padding:24px;">'+e.message+'</div>';
+  }
+}
+
+function renderSites(rows) {
+  const el = document.getElementById('sites-list');
+  if (!rows.length) {
+    el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:32px;">'+
+      'No sites monitored yet. Click <strong>+ Add Site</strong> to get started.</div>';
+    return;
+  }
+  const STATUS_LABELS = {ok:'Healthy', warning:'Warning', critical:'Critical', offline:'Offline'};
+  const statusBadge = (s) => {
+    const cls = {ok:'badge-ok', warning:'badge-warning', critical:'badge-critical', offline:'badge-critical'}[s] || 'badge-unknown';
+    const label = STATUS_LABELS[s] || (s ? s.toUpperCase() : 'UNKNOWN');
+    return '<span class="status-badge ' + cls + '">' + label + '</span>';
+  };
+  el.innerHTML =
+    '<div class="site-row site-row-hdr">' +
+      '<div>Site / Name</div><div>Status</div><div>Response</div>' +
+      '<div>SSL Days</div><div>Last Check</div><div></div><div></div>' +
+    '</div>' +
+    rows.map(function(r) {
+      const m = r.metrics || {};
+      const ago = r.last_checked ? Math.round((Date.now()/1000 - r.last_checked)/60) + 'm ago' : '--';
+      let ssl = 'N/A';
+      if (m.ssl_days_left != null) {
+        const color = m.ssl_days_left<=7 ? 'var(--status-critical)' : m.ssl_days_left<=30 ? 'var(--status-warning)' : 'var(--status-ok)';
+        ssl = '<span style="color:'+color+'">' + m.ssl_days_left + 'd</span>';
+      }
+      const resp = m.response_ms != null ? m.response_ms + 'ms' : '--';
+      const warn = (m.warnings && m.warnings.length) ?
+        '<div style="font-size:11px;color:var(--status-warning);">&#9888; ' + m.warnings[0] + '</div>' : '';
+      // Show WHY a site is offline directly in the row -- status code + error
+      // text, so this is diagnosable at a glance instead of a guessing game.
+      // A "Keyword not found" failure is a PER-SITE setting this device was
+      // configured with when it was added/edited (not a system bug) -- give
+      // a one-click way to remove that requirement right here.
+      const isKeywordMismatch = (m.error || '').toLowerCase().includes('keyword');
+      let errLine = '';
+      if (r.status !== 'ok' && (m.error || m.status_code)) {
+        errLine = '<div style="font-size:11px;color:var(--status-critical);">' +
+          (m.status_code ? 'HTTP ' + m.status_code + ' — ' : '') + escapeHtml(m.error || '');
+        if (isKeywordMismatch) {
+          errLine += ' <button class="btn" style="font-size:10px;padding:1px 8px;margin-left:6px;" ' +
+            'onclick="event.stopPropagation();clearKeywordRequirement(\'' + r.device_id + '\',\'' + escapeHtml(r.name) + '\')">' +
+            'Clear keyword requirement</button>';
+        }
+        errLine += '</div>';
+      }
+      return '<div class="site-row">' +
+        '<div>' +
+          '<div style="font-weight:600;">' + escapeHtml(r.name) + '</div>' +
+          '<div style="font-size:11px;color:var(--text-muted);font-family:var(--font-mono);">' + escapeHtml(r.host) + '</div>' +
+          warn + errLine +
+        '</div>' +
+        '<div>' + statusBadge(r.status) + '</div>' +
+        '<div style="font-family:var(--font-mono);">' + resp + '</div>' +
+        '<div>' + ssl + '</div>' +
+        '<div style="font-size:11px;">' + ago + '</div>' +
+        '<div><button class="btn" style="font-size:11px;padding:3px 10px;" onclick="checkNow(\'' + r.device_id + '\',\'' + r.host + '\')">Test</button></div>' +
+        '<div style="display:flex;gap:4px;">' +
+          '<button class="btn" style="font-size:11px;padding:3px 8px;" onclick="openSiteModal(\'' + r.device_id + '\')">Edit</button>' +
+          '<button class="btn" style="font-size:11px;padding:3px 8px;color:var(--status-critical);" onclick="removeSite(\'' + r.device_id + '\')">Remove</button>' +
+        '</div>' +
+      '</div>';
+    }).join('');
+}
+
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+}
+
+async function clearKeywordRequirement(deviceId, name) {
+  if (!confirm('Remove the required-keyword check for "' + name + '"? The site will then be considered healthy based on HTTP status alone.')) return;
+  const dev = sitesCache.find(d => d.device_id === deviceId);
+  if (!dev) { showToast('Could not find this site — try Refresh first', 'error'); return; }
+  const cfg = Object.assign({}, dev.url_config || {}, { keyword: '' });
+  try {
+    const r = await fetch('/api/devices/' + encodeURIComponent(deviceId), {
+      method: 'PUT',
+      headers: {'X-Session-Token':getSession(),'Content-Type':'application/json'},
+      body: JSON.stringify({
+        id: deviceId, name: dev.name, type: 'web', method: 'url',
+        host: dev.host, poll_interval_seconds: dev.poll_interval_seconds || 60,
+        url_config: cfg
+      })
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Keyword requirement cleared for "' + name + '" — re-checking now...', 'success');
+      await checkNow(deviceId, dev.host);
+      loadSites();
+    } else {
+      showToast(d.error || 'Failed to update', 'error');
+    }
+  } catch(e) {
+    showToast('Failed: ' + e.message, 'error');
+  }
+}
+
+async function checkNow(deviceId, url) {
+  const r = await fetch('/api/urlmonitor/check', {
+    method:'POST',
+    headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+    body: JSON.stringify({url: url, config:{}})
+  });
+  const d = await r.json();
+  if (typeof showToast === 'function') {
+    showToast(url + ': ' + (d.status_code||'?') + ' \u2014 ' + (d.response_ms||'?') + 'ms', 'info');
+  }
+  setTimeout(loadSites, 500);
+}
+
+async function quickCheck() {
+  const raw = document.getElementById('quick-url').value.trim();
+  const exp = parseInt(document.getElementById('quick-status').value) || 200;
+  if (!raw) { alert('Enter a site, domain, or IP first'); return; }
+  const url = normalizeSiteUrl(raw);
+  const res = document.getElementById('quick-result');
+  res.style.display = 'none';
+  try {
+    const r = await fetch('/api/urlmonitor/check', {
+      method:'POST',
+      headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+      body: JSON.stringify({url: url, config:{expected_status: exp, timeout_sec: 10}})
+    });
+    const d = await r.json();
+    const ok = d.reachable;
+    const color = ok ? 'var(--status-ok)' : d.status_code ? 'var(--status-warning)' : 'var(--status-critical)';
+    res.style.display = '';
+    res.innerHTML =
+      '<div style="background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--radius-sm);padding:14px 18px;font-size:13px;">' +
+        '<div style="font-weight:700;color:'+color+';margin-bottom:10px;">' +
+          (ok ? '\u2705 Healthy' : '\u274c FAILED') +
+          (d.status_code ? ' \u2014 HTTP ' + d.status_code : '') +
+        '</div>' +
+        '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:8px;">' +
+          '<div><span style="color:var(--text-muted);">Response time:</span> <strong>' + (d.response_ms!=null?d.response_ms+'ms':'--') + '</strong></div>' +
+          '<div><span style="color:var(--text-muted);">SSL:</span> <strong>' + (d.ssl_status||'N/A') + '</strong></div>' +
+        '</div>' +
+        (d.error ? '<div style="color:var(--status-critical);margin-top:8px;">' + escapeHtml(d.error) + '</div>' : '') +
+      '</div>';
+  } catch(e) {
+    res.style.display = '';
+    res.innerHTML = '<div style="color:var(--status-critical);">Error: ' + e.message + '</div>';
+  }
+}
+
+/* ------------------------- Add / Edit modal ------------------------- */
+function openSiteModal(deviceId) {
+  const errEl = document.getElementById('m-err');
+  errEl.textContent = '';
+  editingId = deviceId || null;
+
+  if (editingId) {
+    const dev = sitesCache.find(function(d){ return d.device_id === editingId; });
+    document.getElementById('site-modal-title').textContent = 'Edit Site';
+    document.getElementById('site-modal-save').textContent  = 'Save Changes';
+    if (dev) {
+      document.getElementById('m-url').value    = dev.host || '';
+      document.getElementById('m-name').value   = dev.name || '';
+      const cfg = dev.url_config || {};
+      document.getElementById('m-status').value  = cfg.expected_status || 200;
+      document.getElementById('m-timeout').value = cfg.timeout_sec || 10;
+      document.getElementById('m-kw').value      = cfg.keyword || '';
+      document.getElementById('m-maxms').value   = cfg.max_response_ms || '';
+      document.getElementById('m-poll').value    = dev.poll_interval_seconds || 60;
+      document.getElementById('m-ssl').checked   = cfg.check_ssl !== false;
+      document.getElementById('m-show-dashboard').checked = !dev.tile_hidden;
+    }
+  } else {
+    document.getElementById('site-modal-title').textContent = 'Add Site';
+    document.getElementById('site-modal-save').textContent  = 'Add Site';
+    document.getElementById('m-url').value     = '';
+    document.getElementById('m-name').value    = '';
+    document.getElementById('m-status').value  = 200;
+    document.getElementById('m-timeout').value = 10;
+    document.getElementById('m-kw').value      = '';
+    document.getElementById('m-maxms').value   = '';
+    document.getElementById('m-poll').value    = 60;
+    document.getElementById('m-ssl').checked   = true;
+    document.getElementById('m-show-dashboard').checked = true;
+  }
+  document.getElementById('site-modal').style.display = 'flex';
+}
+
+function closeSiteModal() {
+  document.getElementById('site-modal').style.display = 'none';
+  editingId = null;
+}
+
+async function saveSite() {
+  const rawUrl  = document.getElementById('m-url').value.trim();
+  const name    = document.getElementById('m-name').value.trim();
+  const status  = parseInt(document.getElementById('m-status').value) || 200;
+  const timeout = parseInt(document.getElementById('m-timeout').value) || 10;
+  const kw      = document.getElementById('m-kw').value.trim();
+  const maxms   = document.getElementById('m-maxms').value ? parseInt(document.getElementById('m-maxms').value) : null;
+  const ssl     = document.getElementById('m-ssl').checked;
+  const showDash= document.getElementById('m-show-dashboard').checked;
+  const poll    = parseInt(document.getElementById('m-poll').value) || 60;
+  const errEl   = document.getElementById('m-err');
+
+  if (!rawUrl || !name) { errEl.textContent = 'Site URL and Name are required.'; return; }
+  const url = normalizeSiteUrl(rawUrl);
+
+  const id = editingId || ('url_' + name.toLowerCase().replace(/[^a-z0-9]/g,'_').slice(0,20) + '_' + Date.now().toString(36));
+  const device = {
+    id: id, name: name, type: 'web', method: 'url',
+    host: url,
+    poll_interval_seconds: poll,
+    url_config: {
+      expected_status: status,
+      timeout_sec:     timeout,
+      keyword:         kw,
+      check_ssl:       ssl,
+      ssl_warn_days:   30,
+      max_response_ms: maxms,
+    }
+  };
+
+  try {
+    const isEdit = !!editingId;
+    const r = await fetch(isEdit ? ('/api/devices/' + editingId) : '/api/devices', {
+      method: isEdit ? 'PUT' : 'POST',
+      headers: {'X-Session-Token':getSession(),'Content-Type':'application/json'},
+      body: JSON.stringify(device)
+    });
+    const d = await r.json();
+    if (d.ok) {
+      try {
+        await fetch('/api/tiles/' + encodeURIComponent(id) + '/' + (showDash ? 'show' : 'hide'),
+          { method: 'POST', headers: {'X-Session-Token':getSession()} });
+      } catch(_) {}
+      closeSiteModal();
+      loadSites();
+      if (typeof showToast === 'function') {
+        showToast('"' + name + '" ' + (isEdit ? 'updated' : 'added to Sites Monitor'), 'success');
+      }
+    } else {
+      errEl.textContent = d.error || 'Failed to save site';
+    }
+  } catch(e) {
+    errEl.textContent = e.message;
+  }
+}
+
+async function removeSite(deviceId) {
+  if (!confirm('Remove this site from monitoring? This cannot be undone.')) return;
+  try {
+    const r = await fetch('/api/devices/' + deviceId, {
+      method: 'DELETE',
+      headers: {'X-Session-Token':getSession()}
+    });
+    const d = await r.json();
+    if (d.ok) {
+      loadSites();
+      if (typeof showToast === 'function') showToast('Site removed', 'success');
+    } else {
+      if (typeof showToast === 'function') showToast(d.error || 'Failed to remove', 'error');
+    }
+  } catch(e) {
+    if (typeof showToast === 'function') showToast('Failed: ' + e.message, 'error');
+  }
+}
+
+document.addEventListener('DOMContentLoaded', loadSites);
+setInterval(loadSites, 10000);
+</script>
+{% endblock %}

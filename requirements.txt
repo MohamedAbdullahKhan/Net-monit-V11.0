@@ -1,0 +1,11 @@
+Flask>=3.0.0
+PyYAML>=6.0
+pysnmp==4.4.12
+pyasn1==0.4.8
+pyasn1-modules==0.2.8
+pyasyncore>=1.0.4
+paramiko>=3.0.0
+APScheduler>=3.10.0
+cryptography>=41.0.0
+pywin32>=306; sys_platform == "win32"
+speedtest-cli>=2.1.3

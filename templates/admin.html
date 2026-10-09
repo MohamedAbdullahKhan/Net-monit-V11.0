@@ -1,0 +1,424 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Admin Panel</h1>
+    <p class="page-sub">Manage users, roles, devices, email groups, and system configuration.</p>
+  </div>
+</div>
+
+<!-- FIX #4: Admin lock screen -->
+<div id="admin-locked" style="display:none;text-align:center;padding:60px 20px;color:var(--text-muted);">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin-bottom:12px;opacity:.4"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+  <p style="font-size:15px;font-weight:600;margin-bottom:6px;">Admin session required</p>
+  <p style="font-size:13px;">Sign in as admin using the Sign In button in the top-right corner.</p>
+</div>
+
+<!-- FIX #4: Admin content — fully rendered -->
+<div id="admin-content" style="display:none;">
+  <div class="tab-bar" style="margin-bottom:18px;">
+    <button class="atab active" data-tab="users">👥 Users</button>
+    <button class="atab" data-tab="email">📧 Email &amp; SMTP</button>
+    <button class="atab" data-tab="groups">📋 Email Groups</button>
+    <button class="atab" data-tab="audit">📜 Audit Log</button>
+    <button class="atab" data-tab="system">⚙ System</button>
+    <button class="atab" data-tab="backup">💾 Backup &amp; Restore</button>
+  </div>
+
+  <!-- ═══ TAB: USERS ═══ -->
+  <div id="at-users" class="atab-panel active">
+    <div class="card">
+      <h2 class="card-title">Add new user</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+        Users can sign in to view the dashboard. Admins can edit devices, settings, and manage users.
+        A welcome email with credentials is sent automatically if SMTP is configured.
+      </p>
+      <div class="form-grid">
+        <div class="field"><label>Email address</label>
+          <input id="au-email" type="email" placeholder="user@company.com"></div>
+        <div class="field"><label>Role</label>
+          <select id="au-role">
+            <option value="admin">Admin (full access)</option>
+            <option value="supervisor">Supervisor (view everything, change nothing)</option>
+            <option value="user" selected>View (dashboard + speed test only)</option>
+          </select></div>
+      </div>
+      <div class="field" style="margin-top:10px;">
+        <label>Access Token <span style="color:var(--text-muted);font-size:11px">(sent to user — stored as hash)</span></label>
+        <div style="display:flex;gap:8px;">
+          <input id="au-token" type="text" placeholder="Min 8 chars, upper+lower+number" style="flex:1;">
+          <button class="btn secondary small" onclick="adminGenToken()">🎲 Generate</button>
+        </div>
+        <div style="margin-top:4px;background:var(--bg-hover);border-radius:3px;height:5px;overflow:hidden;">
+          <div id="au-strength-bar" style="height:5px;width:0;transition:width .3s,background .3s;border-radius:3px;"></div>
+        </div>
+        <div id="au-strength-hint" style="font-size:11px;margin-top:3px;color:var(--text-muted);"></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+        <button class="btn primary" onclick="adminAddUser()">Add user &amp; send welcome email</button>
+        <span id="au-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <h2 class="card-title" style="margin:0;">User accounts</h2>
+        <span id="admin-user-count" class="badge-secondary"></span>
+      </div>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Email</th><th>Role</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody id="admin-users-tbody">
+          <tr><td colspan="4" style="color:var(--text-muted);text-align:center;padding:20px;">Loading…</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: EMAIL & SMTP ═══ -->
+  <div id="at-email" class="atab-panel">
+    <div class="card">
+      <h2 class="card-title">SMTP Configuration</h2>
+      <div class="form-grid">
+        <div class="field"><label>SMTP Enabled</label>
+          <select id="ae-enabled"><option value="true">Enabled</option><option value="false">Disabled</option></select></div>
+        <div class="field"><label>SMTP Host</label>
+          <input id="ae-host" type="text" placeholder="smtp.gmail.com"></div>
+        <div class="field"><label>Port</label>
+          <input id="ae-port" type="number" placeholder="587"></div>
+        <div class="field"><label>Use TLS</label>
+          <select id="ae-tls"><option value="true">Yes (STARTTLS)</option><option value="false">No</option></select></div>
+        <div class="field"><label>Username</label>
+          <input id="ae-username" type="text" placeholder="alerts@company.com"></div>
+        <div class="field"><label>Password</label>
+          <input id="ae-password" type="password" placeholder="Leave blank to keep existing"></div>
+        <div class="field"><label>From address</label>
+          <input id="ae-from" type="text" placeholder="Net-monit &lt;alerts@company.com&gt;"></div>
+        <div class="field"><label>Resend interval (min)</label>
+          <input id="ae-resend" type="number" placeholder="30"></div>
+      </div>
+      <div class="form-grid" style="margin-top:12px;">
+        <div class="field"><label>Admin group emails (receive all alerts)</label>
+          <textarea id="ae-admin-emails" rows="3" class="code-textarea" placeholder="admin@corp.com&#10;noc@corp.com"></textarea></div>
+        <div class="field"><label>Support group emails</label>
+          <textarea id="ae-support-emails" rows="3" class="code-textarea" placeholder="support@corp.com"></textarea></div>
+        <div class="field"><label>Manager group emails</label>
+          <textarea id="ae-manager-emails" rows="3" class="code-textarea" placeholder="manager@corp.com"></textarea></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;flex-wrap:wrap;align-items:center;">
+        <button id="btn-admin-save-email" class="btn primary">Save SMTP</button>
+        <button id="btn-admin-test-warn" class="btn secondary">Send test warning</button>
+        <button id="btn-admin-test-crit" class="btn secondary">Send test critical</button>
+        <span id="ae-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: EMAIL GROUPS ═══ -->
+  <div id="at-groups" class="atab-panel">
+    <div class="card">
+      <h2 class="card-title">Email Groups</h2>
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+        These groups are used as quick-select checkboxes in all notification and escalation modals.
+        All emails here are available as one-click options when configuring per-device recipients.
+      </p>
+      <div id="ag-summary" style="margin-bottom:14px;"></div>
+      <div class="form-grid">
+        <div class="field"><label>Admin group <span style="color:var(--text-muted);font-size:11px">(always CC'd on alerts)</span></label>
+          <textarea id="ag-admin-emails" rows="4" class="code-textarea" placeholder="admin@corp.com&#10;noc@corp.com"></textarea></div>
+        <div class="field"><label>Support group</label>
+          <textarea id="ag-support-emails" rows="4" class="code-textarea" placeholder="support@corp.com"></textarea></div>
+        <div class="field"><label>Manager group</label>
+          <textarea id="ag-manager-emails" rows="4" class="code-textarea" placeholder="manager@corp.com"></textarea></div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;align-items:center;">
+        <button id="btn-admin-save-groups" class="btn primary">Save groups</button>
+        <span id="ag-status" style="font-size:13px;"></span>
+      </div>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:10px;">
+        💡 After saving, these emails become available as checkboxes in all device notification modals (Devices → Notify).
+      </p>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: AUDIT LOG ═══ -->
+  <div id="at-audit" class="atab-panel">
+    <div class="card">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <h2 class="card-title" style="margin:0;">Audit Log</h2>
+        <button class="btn secondary small" onclick="loadAdminAudit()">↻ Refresh</button>
+      </div>
+      <div style="overflow-x:auto;"><table class="data-table">
+        <thead><tr><th>Time</th><th>Actor</th><th>Action</th><th>Target</th><th>Detail</th></tr></thead>
+        <tbody id="audit-tbody">
+          <tr><td colspan="5" style="color:var(--text-muted);text-align:center;padding:20px;">Loading…</td></tr>
+        </tbody>
+      </table></div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: SYSTEM ═══ -->
+  <div id="at-system" class="atab-panel">
+    <div class="card">
+      <h2 class="card-title">System Information</h2>
+      <div id="admin-sys-info">Loading…</div>
+    </div>
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">About Net-monit V11.0</h2>
+      <p style="font-size:13px;color:var(--text-secondary);line-height:1.7;">
+        Net-monit V11.0 is a production-grade, self-hosted network and server monitoring platform.
+        Monitor ping latency, packet loss, CPU, memory, disk, bandwidth and more across
+        your entire infrastructure. Receive email alerts with configurable thresholds and
+        multi-level escalation routing.
+      </p>
+      <p style="font-size:12px;color:var(--text-muted);margin-top:10px;">
+        Copyright © 2024–2026 Abdullah · <a href="mailto:abuabdullah.be@outlook.com" style="color:var(--accent)">abuabdullah.be@outlook.com</a>
+      </p>
+    </div>
+
+    <!-- V7.2: System default appearance (applies to anonymous visitors & new users).
+         V10.1: added default background colour/image -- these were added to the
+         per-user picker in V10.0 (Settings -> Appearance) but this admin card was
+         never extended to match, so there was no way to set a site-wide default
+         for either. Also switched from saving on every click to one explicit
+         Save Defaults button, same reasoning as the per-user picker. -->
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">Default Appearance</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+        Shown to anonymous visitors and any user who hasn't personalised their own
+        preference yet (Settings &rarr; Appearance overrides this per account).
+        Changes preview below immediately — press Save Defaults to apply them.
+      </p>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">Default theme</label>
+        <div id="admin-theme-switcher" class="theme-switcher" style="display:inline-flex;"></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">Default accent colour</label>
+        <div id="admin-accent-picker" class="accent-swatches"></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">Default background colour</label>
+        <div id="admin-bg-color-picker" class="accent-swatches"></div>
+      </div>
+      <div style="margin-bottom:16px;">
+        <label style="font-size:12px;color:var(--text-muted);display:block;margin-bottom:6px;">Default background image</label>
+        <div id="admin-bg-image-preview" style="margin-bottom:10px;display:none;">
+          <img id="admin-bg-image-preview-img" src="" alt="Current default background"
+            style="max-height:80px;max-width:100%;object-fit:cover;border-radius:8px;border:1px solid var(--border);">
+          <button class="btn secondary small" onclick="clearAdminBgImage()" type="button" style="margin-left:10px;">Remove</button>
+        </div>
+        <input type="file" id="admin-bg-image-file" accept="image/png,image/jpeg,image/webp,image/gif">
+      </div>
+      <div style="display:flex;align-items:center;gap:12px;">
+        <button class="btn" id="admin-appearance-save-btn" type="button">Save Defaults</button>
+        <span id="admin-appearance-status" style="font-size:12px;"></span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ═══ TAB: BACKUP & RESTORE (V8.4) ═══ -->
+  <div id="at-backup" class="atab-panel">
+    <div class="card">
+      <h2 class="card-title">Export configuration</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+        Downloads a single file with your devices (including credentials, still encrypted exactly as they're
+        stored — restoring on a <em>different</em> machine also requires copying that machine's
+        <code>data/secret.key</code>), SMTP settings, notification templates, custom placeholders, thresholds,
+        and escalation settings.
+        <br><strong>Not included:</strong> alert/metric history, the audit log, speed test or network scan
+        history (use a full <code>data/monitor.db</code> file copy for that), and this server's own port —
+        restoring a backup never changes the port you're currently running on.
+      </p>
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" id="backup-include-users" checked style="width:16px;height:16px;">
+        Include user accounts (emails, roles, and hashed access tokens — not the raw tokens themselves)
+      </label>
+      <button class="btn primary" onclick="exportConfig()" type="button">⬇ Download backup</button>
+      <div id="backup-export-status" style="font-size:12px;margin-top:10px;"></div>
+    </div>
+
+    <div class="card" style="margin-top:16px;">
+      <h2 class="card-title">Restore configuration</h2>
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+        Restoring <strong>replaces</strong> your current devices, SMTP settings, templates, custom
+        placeholders, thresholds, and escalation settings with the contents of the file — this cannot be
+        undone. User accounts are the one exception: imported accounts are added or updated, but any account
+        not in the file is left alone, so you can never lock yourself out by restoring an older backup.
+        <br>We strongly recommend downloading a fresh export of your <em>current</em> configuration above
+        before restoring, in case you want to go back.
+      </p>
+      <input type="file" id="backup-restore-file" accept="application/json,.json" style="margin-bottom:12px;display:block;">
+      <label style="display:flex;align-items:center;gap:8px;font-size:13px;margin-bottom:14px;cursor:pointer;">
+        <input type="checkbox" id="backup-restore-users" checked style="width:16px;height:16px;">
+        Also restore user accounts from this file
+      </label>
+      <button class="btn" style="background:var(--status-critical);color:#fff;" onclick="restoreConfig()" type="button">Restore from file</button>
+      <div id="backup-restore-status" style="font-size:12px;margin-top:10px;"></div>
+    </div>
+  </div>
+</div><!-- /admin-content -->
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/admin.js"></script>
+<script>
+// V7.2: Admin default-appearance controls (system-wide, separate from per-user prefs)
+// V10.1: added background colour/image; switched from save-on-every-click to
+// pending-preview + one explicit Save button -- same reasoning as the
+// per-user picker in theme.js (a native colour input fires "input"
+// continuously while dragging, which used to mean a POST per tick).
+let _pendingAdmin = { theme: null, color: null, bgColor: null, bgImage: undefined };
+// bgImage stays "undefined" for "nothing queued"; "" means "queued removal";
+// a data: URL string means "queued new image" -- distinct from null/"" so
+// saveAdminAppearance() below knows whether to touch the image at all.
+
+async function loadAdminAppearance() {
+  try {
+    const r = await fetch('/api/admin/appearance', {headers:{'X-Session-Token':getSession()}});
+    const d = await r.json();
+    _pendingAdmin = { theme: null, color: null, bgColor: null, bgImage: undefined };
+    buildAdminThemeSwitcher(d.default_theme);
+    buildAdminAccentPicker(d.default_accent_color);
+    buildAdminBgColorPicker(d.default_bg_color || '');
+    updateAdminBgImagePreview(d.default_bg_image || '');
+  } catch(e) { console.error(e); }
+}
+function buildAdminThemeSwitcher(current) {
+  const el = document.getElementById('admin-theme-switcher');
+  if (!el) return;
+  const active = _pendingAdmin.theme || current;
+  el.innerHTML =
+    '<button class="theme-opt" data-v="light">&#9728;</button>' +
+    '<button class="theme-opt" data-v="dark">&#9790;</button>' +
+    '<button class="theme-opt" data-v="system">&#128421;</button>';
+  el.querySelectorAll('.theme-opt').forEach(function(btn){
+    btn.classList.toggle('active', btn.dataset.v === active);
+    btn.addEventListener('click', function(){
+      _pendingAdmin.theme = btn.dataset.v;
+      el.querySelectorAll('.theme-opt').forEach(function(b){ b.classList.toggle('active', b === btn); });
+      _adminAppearanceStatus('Not saved yet', null);
+    });
+  });
+}
+function buildAdminAccentPicker(current) {
+  const el = document.getElementById('admin-accent-picker');
+  if (!el) return;
+  const presets = ['#0078d4','#6366f1','#0d9488','#16a34a','#d97706','#e11d48','#7c3aed'];
+  const active = _pendingAdmin.color || current;
+  el.innerHTML = presets.map(function(c){
+    return '<div class="accent-swatch' + (c.toLowerCase()===active.toLowerCase()?' active':'') +
+           '" style="background:' + c + ';" data-c="' + c + '"></div>';
+  }).join('') +
+  '<input type="color" class="accent-swatch-custom" id="admin-accent-custom" value="' + active + '">';
+  el.querySelectorAll('.accent-swatch').forEach(function(sw){
+    sw.addEventListener('click', function(){
+      _pendingAdmin.color = sw.dataset.c;
+      el.querySelectorAll('.accent-swatch').forEach(function(s){ s.classList.toggle('active', s === sw); });
+      _adminAppearanceStatus('Not saved yet', null);
+    });
+  });
+  const custom = document.getElementById('admin-accent-custom');
+  if (custom) custom.addEventListener('input', function(e){
+    _pendingAdmin.color = e.target.value;
+    _adminAppearanceStatus('Not saved yet', null);
+  });
+}
+function buildAdminBgColorPicker(current) {
+  const el = document.getElementById('admin-bg-color-picker');
+  // BG_COLOR_PRESETS comes from theme.js, loaded globally on every page.
+  if (!el || typeof BG_COLOR_PRESETS === 'undefined') return;
+  const active = _pendingAdmin.bgColor !== null ? _pendingAdmin.bgColor : current;
+  el.innerHTML = BG_COLOR_PRESETS.map(function(p){
+    return '<div class="bg-color-swatch' + (p.value.toLowerCase()===active.toLowerCase()?' active':'') +
+           '" style="background:' + (p.value || 'var(--bg-base)') + ';' + (p.value?'':'border-style:dashed;') +
+           '" data-c="' + p.value + '" title="' + p.name + '"></div>';
+  }).join('') +
+  '<input type="color" class="bg-color-swatch-custom" id="admin-bg-color-custom" value="' + (active || '#0f1520') + '">';
+  el.querySelectorAll('.bg-color-swatch').forEach(function(sw){
+    sw.addEventListener('click', function(){
+      _pendingAdmin.bgColor = sw.dataset.c;
+      el.querySelectorAll('.bg-color-swatch').forEach(function(s){ s.classList.toggle('active', s === sw); });
+      _adminAppearanceStatus('Not saved yet', null);
+    });
+  });
+  const custom = document.getElementById('admin-bg-color-custom');
+  if (custom) custom.addEventListener('input', function(e){
+    _pendingAdmin.bgColor = e.target.value;
+    _adminAppearanceStatus('Not saved yet', null);
+  });
+}
+function updateAdminBgImagePreview(dataUrl) {
+  const preview = document.getElementById('admin-bg-image-preview');
+  const img = document.getElementById('admin-bg-image-preview-img');
+  if (!preview || !img) return;
+  if (dataUrl) { img.src = dataUrl; preview.style.display = 'block'; }
+  else preview.style.display = 'none';
+}
+function clearAdminBgImage() {
+  _pendingAdmin.bgImage = '';
+  updateAdminBgImagePreview('');
+  _adminAppearanceStatus('Not saved yet', null);
+}
+function _adminAppearanceStatus(msg, ok) {
+  const statusEl = document.getElementById('admin-appearance-status');
+  if (!statusEl) return;
+  statusEl.textContent = msg;
+  statusEl.style.color = ok === null ? 'var(--text-muted)' : ok ? 'var(--status-ok)' : 'var(--status-critical)';
+}
+async function saveAdminAppearance() {
+  const activeThemeBtn = document.querySelector('#admin-theme-switcher .theme-opt.active');
+  const theme = _pendingAdmin.theme || (activeThemeBtn ? activeThemeBtn.dataset.v : 'dark');
+  const activeColorEl = document.querySelector('#admin-accent-picker .accent-swatch.active');
+  const color = _pendingAdmin.color || (activeColorEl ? activeColorEl.dataset.c : '#0078d4');
+  const bgColor = _pendingAdmin.bgColor !== null ? _pendingAdmin.bgColor : '';
+  try {
+    _adminAppearanceStatus('Saving…', null);
+    const r = await fetch('/api/admin/appearance', {
+      method:'POST',
+      headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+      body: JSON.stringify({default_theme: theme, default_accent_color: color, default_bg_color: bgColor})
+    });
+    const d = await r.json();
+    if (!d.ok) { _adminAppearanceStatus(d.error || 'Failed to save', false); return; }
+    if (_pendingAdmin.bgImage !== undefined) {
+      const imgResp = _pendingAdmin.bgImage
+        ? await fetch('/api/admin/appearance/bg-image', {
+            method:'POST', headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+            body: JSON.stringify({image_data: _pendingAdmin.bgImage})
+          })
+        : await fetch('/api/admin/appearance/bg-image', {method:'DELETE', headers:{'X-Session-Token':getSession()}});
+      if (!imgResp.ok) {
+        const ed = await imgResp.json().catch(function(){ return {}; });
+        _adminAppearanceStatus(ed.error || 'Saved, but image failed', false);
+        return;
+      }
+    }
+    _adminAppearanceStatus('Saved ✓', true);
+    loadAdminAppearance();
+  } catch(e) {
+    _adminAppearanceStatus('Error: ' + e.message, false);
+  }
+}
+document.addEventListener('DOMContentLoaded', function(){
+  setTimeout(loadAdminAppearance, 400);
+  const saveBtn = document.getElementById('admin-appearance-save-btn');
+  if (saveBtn) saveBtn.addEventListener('click', saveAdminAppearance);
+  const bgFile = document.getElementById('admin-bg-image-file');
+  if (bgFile) bgFile.addEventListener('change', function(){
+    const file = this.files && this.files[0];
+    if (!file) return;
+    if (file.size > 4 * 1024 * 1024) {
+      _adminAppearanceStatus('Image must be under 4MB', false);
+      this.value = '';
+      return;
+    }
+    const reader = new FileReader();
+    reader.onload = function(){
+      _pendingAdmin.bgImage = reader.result;
+      updateAdminBgImagePreview(reader.result);
+      _adminAppearanceStatus('Not saved yet', null);
+    };
+    reader.readAsDataURL(file);
+  });
+});
+</script>
+{% endblock %}

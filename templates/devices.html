@@ -1,0 +1,193 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Devices</h1>
+    <p class="page-sub">Manage monitored devices, thresholds, and alert routing per device.</p>
+  </div>
+</div>
+
+<!-- Admin required banner -->
+<div id="admin-required-msg" style="display:none;background:rgba(242,184,75,.08);
+  border:1px solid rgba(242,184,75,.25);border-radius:var(--radius-sm);padding:10px 16px;
+  font-size:13px;color:var(--status-warning);margin-bottom:16px;">
+  ⚠ Sign in as admin to add or edit devices.
+</div>
+
+<!-- Add / Edit device form -->
+<div class="card" id="add-device-card">
+  <h2 class="card-title">Add device / server / shared drive</h2>
+  <div id="add-device-form">
+    <div class="form-grid">
+      <div class="field">
+        <label>Device ID <span style="color:var(--text-muted);font-size:11px">(unique, no spaces)</span></label>
+        <input id="f-id" type="text" placeholder="e.g. core-switch-01">
+      </div>
+      <div class="field">
+        <label>Display name</label>
+        <input id="f-name" type="text" placeholder="Core Switch 01">
+      </div>
+      <div class="field">
+        <label>Host / IP address</label>
+        <input id="f-host" type="text" placeholder="e.g. 192.168.1.5">
+      </div>
+      <div class="field">
+        <label>Poll interval (sec)</label>
+        <input id="f-interval" type="number" placeholder="30 (default)">
+      </div>
+      <div class="field">
+        <label>Device type</label>
+        <select id="f-type">
+          <option value="network">Network device</option>
+          <option value="firewall">Firewall</option>
+          <option value="wireless">Wireless AP</option>
+          <option value="windows">Windows server</option>
+          <option value="linux">Linux server</option>
+          <option value="vmware">VMware host</option>
+          <option value="nas">NAS / Storage</option>
+          <option value="printer">Printer</option>
+          <option value="ups">UPS</option>
+          <option value="camera">IP Camera</option>
+          <option value="other">Other</option>
+        </select>
+      </div>
+      <div class="field">
+        <label>Check method</label>
+        <select id="f-method">
+          <option value="ping">Ping (ICMP)</option>
+          <option value="snmp">SNMP</option>
+          <option value="powershell">PowerShell (Windows)</option>
+          <option value="ssh">SSH (Linux)</option>
+          <option value="disk_usage">Disk / Shared drive</option>
+        </select>
+      </div>
+    </div>
+    <!-- Method-specific credential fields -->
+    <div id="method-fields" style="margin-top:4px;"></div>
+    <!-- V8.2: watch services/scheduled tasks on this host (ssh/powershell only) -->
+    <div id="method-services-tasks" style="margin-top:4px;"></div>
+    <!-- Metric selection injected here -->
+    <div id="method-metrics" style="margin-top:4px;"></div>
+    <div style="display:flex;align-items:center;gap:8px;margin-top:12px;">
+      <input type="checkbox" id="f-show-dashboard" checked style="width:16px;height:16px;">
+      <label for="f-show-dashboard" style="font-size:13px;color:var(--text-secondary);cursor:pointer;">
+        Show on Infrastructure Overview dashboard
+      </label>
+    </div>
+    <div style="display:flex;gap:10px;margin-top:14px;">
+      <button id="btn-add-device" class="btn primary">Add device</button>
+      <button id="btn-cancel-edit" class="btn secondary" style="display:none;">Cancel edit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Monitored devices list -->
+<div class="card" style="margin-top:16px;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+    <h2 class="card-title" style="margin:0;">Monitored devices</h2>
+    <span id="device-count" class="badge-secondary">loading…</span>
+  </div>
+  <div id="device-list"></div>
+</div>
+
+<!-- Notification modal (FIX #6 #7) -->
+<div id="notify-modal" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:680px;max-height:92vh;overflow-y:auto;">
+    <div class="modal-header">
+      <span class="modal-title">⚙ Notification settings — <span id="nm-device-name"></span></span>
+      <button class="icon-btn" onclick="closeNotifyModal()">✕</button>
+    </div>
+    <div style="padding:20px;display:flex;flex-direction:column;gap:14px;">
+      <p style="font-size:12.5px;color:var(--text-muted);">Configure per-device thresholds, recipients, and multi-level escalation. Admin emails are always CC'd by default.</p>
+
+      <div style="display:flex;align-items:center;gap:10px;">
+        <input type="checkbox" id="nm-enabled" style="width:16px;height:16px;">
+        <label for="nm-enabled" style="font-size:13px;cursor:pointer;">Notifications enabled for this device</label>
+      </div>
+
+      <!-- FIX #7: Notify emails with picker -->
+      <div class="field">
+        <label>Notify emails — who receives alerts for this device (To)</label>
+        <textarea id="nm-notify-emails" rows="2" class="code-textarea" placeholder="noc@corp.com&#10;infra@corp.com"></textarea>
+        <p style="font-size:11.5px;color:var(--text-muted);margin-top:3px;">Leave blank to use global admin emails from Settings.</p>
+        <div id="nm-notify-email-picker" style="margin-top:6px;"></div>
+      </div>
+
+      <!-- Per-metric thresholds (FIX #7) -->
+      <div>
+        <p style="font-size:13px;font-weight:600;margin-bottom:6px;">Per-metric thresholds</p>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:8px;">Leave blank to use global defaults.</p>
+        <div id="nm-thresholds" style="overflow-x:auto;"></div>
+      </div>
+
+      <!-- Alert trigger mode (governs the FIRST alert of a new problem) -->
+      <div class="field" style="border-top:1px solid var(--border);padding-top:12px;">
+        <label style="font-size:13px;font-weight:600;">Alert trigger mode</label>
+        <p style="font-size:12px;color:var(--text-muted);margin:2px 0 6px;">
+          "Wait to confirm" (default) delays the first email until Level 1 below has elapsed (default 60s),
+          so short blips that recover on their own don't email anyone — they still appear in the Alert Event Log.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <select id="nm-trigger-mode" style="max-width:280px;" onchange="toggleNmWaitField()">
+            <option value="sustained">Wait to confirm, then alert (default)</option>
+            <option value="immediate">Immediate</option>
+          </select>
+          <span id="nm-wait-field" style="display:flex;align-items:center;gap:6px;font-size:13px;">
+            Wait
+            <input type="number" id="nm-wait-sec" min="1" value="60" style="width:80px;" onchange="syncNmWaitToL1()">
+            seconds, then alert
+          </span>
+        </div>
+      </div>
+
+      <!-- Repeat-alert cooldown (V8.4) -->
+      <div class="field" style="border-top:1px solid var(--border);padding-top:12px;">
+        <label style="font-size:13px;font-weight:600;">Repeat-alert cooldown <span style="font-weight:400;color:var(--text-muted);">(V8.4)</span></label>
+        <p style="font-size:12px;color:var(--text-muted);margin:2px 0 6px;">
+          Minimum gap between repeat alerts once the first one has fired — prevents a flapping metric from
+          emailing on every up/down. Acknowledging an alert always takes priority: no further alerts, even
+          after this cooldown, until it's resolved.
+        </p>
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+          <select id="nm-notify-mode" style="max-width:280px;" onchange="toggleNmCooldownField()">
+            <option value="immediate">Immediate (default)</option>
+            <option value="cooldown">Cooldown</option>
+          </select>
+          <span id="nm-cooldown-field" style="display:none;align-items:center;gap:6px;font-size:13px;">
+            Minimum
+            <input type="number" id="nm-cooldown-sec" min="1" value="300" style="width:90px;">
+            seconds between repeat alerts
+          </span>
+        </div>
+      </div>
+
+      <!-- Escalation (FIX #6) -->
+      <div style="border-top:1px solid var(--border);padding-top:12px;">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;flex-wrap:wrap;gap:8px;">
+          <p style="font-size:13px;font-weight:600;margin:0;">Escalation flow</p>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <label style="font-size:12.5px;">Active levels:</label>
+            <select id="nm-esc-levels" style="width:130px;" onchange="renderEscLevels(null)">
+              <option value="0">Disabled</option>
+              <option value="1" selected>Level 1 only</option>
+              <option value="2">Levels 1 &amp; 2</option>
+              <option value="3">All 3 levels</option>
+            </select>
+          </div>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin-bottom:10px;">Each level triggers after the alert has been active for the specified time. Already-receiving emails appear pre-checked below — uncheck to remove.</p>
+        <div id="nm-esc-levels-container"></div>
+      </div>
+
+      <div style="display:flex;gap:10px;align-items:center;">
+        <button class="btn primary" onclick="saveNotifyModal()">Save</button>
+        <button class="btn secondary" onclick="closeNotifyModal()">Cancel</button>
+        <span id="nm-status" style="font-size:13px;"></span>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/devices.js"></script>
+{% endblock %}

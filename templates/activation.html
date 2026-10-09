@@ -1,0 +1,359 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <h1 class="page-title">License &amp; Activation</h1>
+  <p class="page-subtitle">Manage your Net-monit V11.0 license</p>
+</div>
+
+<div style="max-width:780px;margin:0 auto;">
+
+  <!-- ── License Status Card ───────────────────────────────────────── -->
+  <div class="card" id="lic-status-card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <span class="card-title">License Status</span>
+      <span id="lic-badge" class="role-badge" style="font-size:13px;padding:4px 12px;">Loading…</span>
+    </div>
+    <div style="padding:20px;">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:20px;" id="lic-stats">
+        <div class="stat-box">
+          <div class="stat-label">Status</div>
+          <div class="stat-value" id="lic-state-txt">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Trial Period</div>
+          <div class="stat-value" id="lic-trial-days">—</div>
+        </div>
+        <div class="stat-box">
+          <div class="stat-label">Trial Started</div>
+          <div class="stat-value" id="lic-trial-start">—</div>
+        </div>
+      </div>
+      <div id="lic-status-msg" style="padding:12px 16px;border-radius:6px;font-size:14px;line-height:1.6;display:none;"></div>
+    </div>
+  </div>
+
+  <!-- ── Device Fingerprint Card ───────────────────────────────────── -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <span class="card-title">Device Fingerprint</span>
+      <span style="font-size:12px;color:var(--text-muted);">Provide both values to your license administrator</span>
+    </div>
+    <div style="padding:20px;">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:18px;line-height:1.6;">
+        These two 16-character codes uniquely identify this server installation.
+        Send them to your license administrator to generate a license key.
+        The license key is bound to <strong>both</strong> values and will only work on this server.
+      </p>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+        <!-- Device ID -->
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">
+            Device ID
+            <span title="Based on: hostname + MAC address + OS + CPU" style="cursor:help;margin-left:4px;opacity:.6;">ⓘ</span>
+          </label>
+          <div style="position:relative;">
+            <input id="lic-device-id" type="text" readonly
+              style="width:100%;font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;
+                     background:var(--surface);border:2px solid var(--border);border-radius:8px;
+                     padding:12px 44px 12px 14px;color:var(--text-primary);text-transform:uppercase;"
+              value="Loading…">
+            <button onclick="copyField('lic-device-id','copy-did')" title="Copy Device ID"
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px;"
+              id="copy-did">⧉</button>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:5px;">Hardware &amp; hostname fingerprint</p>
+        </div>
+
+        <!-- Activation Code -->
+        <div>
+          <label style="display:block;font-size:12px;font-weight:600;color:var(--text-muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.5px;">
+            Activation Code
+            <span title="Based on: Python version + install path + UUID" style="cursor:help;margin-left:4px;opacity:.6;">ⓘ</span>
+          </label>
+          <div style="position:relative;">
+            <input id="lic-act-code" type="text" readonly
+              style="width:100%;font-family:monospace;font-size:15px;font-weight:700;letter-spacing:2px;
+                     background:var(--surface);border:2px solid var(--border);border-radius:8px;
+                     padding:12px 44px 12px 14px;color:var(--text-primary);text-transform:uppercase;"
+              value="Loading…">
+            <button onclick="copyField('lic-act-code','copy-ac')" title="Copy Activation Code"
+              style="position:absolute;right:8px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--text-muted);font-size:16px;"
+              id="copy-ac">⧉</button>
+          </div>
+          <p style="font-size:11px;color:var(--text-muted);margin-top:5px;">Software &amp; installation fingerprint</p>
+        </div>
+      </div>
+
+      <!-- Copy both button -->
+      <div style="margin-top:14px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">
+        <button class="btn secondary" onclick="copyBoth()" id="copy-both-btn">⧉ Copy Both Values</button>
+        <span id="copy-both-ok" style="font-size:12px;color:var(--status-ok);display:none;">✓ Copied to clipboard</span>
+        <span style="font-size:12px;color:var(--text-muted);">— paste into the License Key Generator tool</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── License Key Entry ─────────────────────────────────────────── -->
+  <div class="card" style="margin-bottom:20px;" id="activation-card">
+    <div class="card-header">
+      <span class="card-title">Enter License Key</span>
+    </div>
+    <div style="padding:20px;">
+      <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;line-height:1.6;">
+        Paste the license key provided by your vendor. Since V11.0 a key is long (about 127 characters with dashes) and starts with
+        <code style="font-family:monospace;font-size:14px;font-weight:700;">NM1-</code>. Copy and paste the <strong>whole</strong> key;
+        do not type it.
+      </p>
+
+      <div id="activate-locked-msg" style="display:none;padding:12px 16px;background:var(--surface);border:1px solid var(--border);border-radius:6px;font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+        🔒 Sign in as <strong>Admin</strong> to activate a license key.
+      </div>
+
+      <div id="activate-form" style="display:none;">
+        <div style="display:flex;gap:10px;align-items:flex-start;flex-wrap:wrap;">
+          <div style="flex:1;min-width:220px;">
+            <textarea id="lic-key-input" rows="4" placeholder="NM1-XXXXX-XXXXX-XXXXX-XXXXX-..." spellcheck="false" autocomplete="off"
+              style="width:100%;font-family:monospace;font-size:14px;font-weight:700;letter-spacing:1px;text-align:center;
+                     text-transform:uppercase;border:2px solid var(--border);border-radius:8px;resize:vertical;
+                     padding:12px 16px;background:var(--surface);color:var(--text-primary);"
+              oninput="formatKeyInput(this)"></textarea>
+            <p style="font-size:11px;color:var(--text-muted);margin-top:5px;text-align:center;">Paste the whole key (starts with NM1-, about 127 characters with dashes). Spaces and line breaks are ignored.</p>
+          </div>
+          <button class="btn primary" onclick="activateLicense()" id="activate-btn"
+            style="padding:12px 24px;font-size:14px;white-space:nowrap;">
+            ✓ Activate License
+          </button>
+        </div>
+        <div id="activate-result" style="display:none;margin-top:12px;padding:12px 16px;border-radius:6px;font-size:14px;font-weight:600;"></div>
+      </div>
+
+      <!-- Already licensed -->
+      <div id="already-licensed" style="display:none;padding:12px 16px;background:#1a3a1a;border:1px solid #2d6a2d;border-radius:6px;font-size:14px;color:#5dd45d;">
+        ✓ This installation is fully licensed. No action needed.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── How to Get a License ──────────────────────────────────────── -->
+  <div class="card" style="margin-bottom:20px;">
+    <div class="card-header">
+      <span class="card-title">How to Get a License Key</span>
+    </div>
+    <div style="padding:20px;">
+      <ol style="margin:0;padding-left:20px;font-size:14px;line-height:2;color:var(--text-primary);">
+        <li>Copy your <strong>Device ID</strong> and <strong>Activation Code</strong> from above.</li>
+        <li>Open the <strong>Net-monit License Key Generator</strong> tool (provided separately).</li>
+        <li>Paste both values into the generator.</li>
+        <li>The generator produces a long license key that starts with <strong>NM1-</strong>.</li>
+        <li>Enter that key in the box above and click <strong>Activate License</strong>.</li>
+      </ol>
+      <div style="margin-top:16px;padding:12px 16px;background:var(--surface);border-left:3px solid var(--status-warning);border-radius:0 6px 6px 0;font-size:13px;">
+        <strong>Note:</strong> Each license key is unique to this server's Device ID and Activation Code.
+        A key generated for a different server will not work here. The key is permanent — it does not expire.
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Restricted Features Warning ──────────────────────────────── -->
+  <div class="card" id="restricted-features-card" style="display:none;margin-bottom:20px;border:1px solid var(--status-critical);">
+    <div class="card-header" style="background:rgba(180,30,30,0.1);">
+      <span class="card-title" style="color:var(--status-critical);">⚠ Restricted Mode — Features Disabled</span>
+    </div>
+    <div style="padding:20px;">
+      <p style="font-size:13px;margin-bottom:14px;line-height:1.6;">Your 30-day trial has expired. The following features are disabled until you activate a license:</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:13px;">
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-critical);">✘ Device host IPs hidden</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-critical);">✘ Critical metric values hidden</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-critical);">✘ Admin Panel locked</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-critical);">✘ Settings page locked</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-critical);">✘ Device add/edit/delete locked</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-ok);">✔ Dashboard tiles still visible</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-ok);">✔ This page always accessible</div>
+        <div style="display:flex;gap:8px;align-items:center;color:var(--status-ok);">✔ About/System page accessible</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- About footer -->
+  <div style="text-align:center;font-size:12px;color:var(--text-muted);padding:12px 0 24px;">
+    Net-monit V11.0 · © 2024–2026 Abdullah · <a href="mailto:abuabdullah.be@outlook.com" style="color:var(--text-muted);">abuabdullah.be@outlook.com</a>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+let _licenseState = null;
+
+function formatKeyInput(el) {
+  // Tidy only: drop spaces/line breaks, upper-case, regroup in fives. The server does the real check.
+  let v = el.value.replace(/[^0-9A-Za-z]/g,'').toUpperCase().slice(0,110);
+  let head = v.startsWith('NM1') ? 'NM1-' : '';
+  let rest = head ? v.slice(3) : v;
+  el.value = head + (rest.match(/.{1,5}/g) || []).join('-');
+}
+
+function copyField(fieldId, btnId) {
+  const val = document.getElementById(fieldId).value;
+  navigator.clipboard.writeText(val).then(() => {
+    const btn = document.getElementById(btnId);
+    const orig = btn.textContent;
+    btn.textContent = '✓';
+    btn.style.color = 'var(--status-ok)';
+    setTimeout(() => { btn.textContent = orig; btn.style.color = ''; }, 1500);
+  }).catch(() => {
+    const el = document.getElementById(fieldId);
+    el.select(); document.execCommand('copy');
+  });
+}
+
+function copyBoth() {
+  const did = document.getElementById('lic-device-id').value;
+  const ac  = document.getElementById('lic-act-code').value;
+  const text = `Device ID:       ${did}\nActivation Code: ${ac}`;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('copy-both-btn');
+    const ok  = document.getElementById('copy-both-ok');
+    btn.textContent = '✓ Copied!';
+    ok.style.display = 'inline';
+    setTimeout(() => { btn.textContent = '⧉ Copy Both Values'; ok.style.display = 'none'; }, 2000);
+  });
+}
+
+function activateLicense() {
+  const key = document.getElementById('lic-key-input').value.trim().toUpperCase();
+  const compact = key.replace(/[^0-9A-Z]/g, '');
+  if (compact.length < 10) {
+    showActivateResult(false, 'Please paste the license key.');
+    return;
+  }
+  if (compact.length >= 10 && compact.length <= 11 && !compact.startsWith('NM1')) {
+    showActivateResult(false, 'That is an old-format key (XXXXX-XXXXX). Keys from before V11.0 are no longer accepted; ask your vendor for a new key.');
+    return;
+  }
+  if (compact.length < 100) {
+    showActivateResult(false, 'The key looks incomplete (' + compact.length + ' characters, expected 106). Copy and paste the WHOLE key.');
+    return;
+  }
+  const btn = document.getElementById('activate-btn');
+  btn.textContent = 'Activating…';
+  btn.disabled = true;
+
+  fetch('/api/license/activate', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Session-Token': sessionStorage.getItem('netmon_session') || ''
+    },
+    body: JSON.stringify({ license_key: key })
+  })
+  .then(r => r.json())
+  .then(d => {
+    btn.textContent = '✓ Activate License';
+    btn.disabled = false;
+    showActivateResult(d.ok, d.message);
+    if (d.ok) {
+      setTimeout(() => loadLicenseStatus(), 800);
+    }
+  })
+  .catch(e => {
+    btn.textContent = '✓ Activate License';
+    btn.disabled = false;
+    showActivateResult(false, 'Network error — please try again.');
+  });
+}
+
+function showActivateResult(ok, msg) {
+  const el = document.getElementById('activate-result');
+  el.style.display = 'block';
+  el.style.background = ok ? 'rgba(34,139,34,0.15)' : 'rgba(180,30,30,0.15)';
+  el.style.border = ok ? '1px solid #2d7d2d' : '1px solid #7d2d2d';
+  el.style.color = ok ? 'var(--status-ok)' : 'var(--status-critical)';
+  el.textContent = (ok ? '✓ ' : '✘ ') + msg;
+}
+
+function loadLicenseStatus() {
+  fetch('/api/license/status')
+    .then(r => r.json())
+    .then(d => {
+      _licenseState = d;
+      // Device fingerprint
+      document.getElementById('lic-device-id').value = d.device_id || '';
+      document.getElementById('lic-act-code').value  = d.activation_code || '';
+
+      // State badge
+      const badge = document.getElementById('lic-badge');
+      const states = {
+        valid:   { text:'✓ Licensed',         bg:'#1a4a1a', color:'#5dd45d' },
+        trial:   { text:'⏱ Trial Active',     bg:'#3a3000', color:'#ffd700' },
+        expired: { text:'⚠ Trial Expired',    bg:'#4a1a1a', color:'#ff6b6b' },
+        invalid: { text:'✘ Invalid Key',      bg:'#4a1a1a', color:'#ff6b6b' },
+      };
+      const s = states[d.state] || { text: d.state, bg: '#333', color: '#fff' };
+      badge.textContent = s.text;
+      badge.style.background = s.bg;
+      badge.style.color = s.color;
+      badge.style.border = 'none';
+
+      // Stats
+      document.getElementById('lic-state-txt').textContent =
+        d.state === 'valid'   ? 'Fully Licensed' :
+        d.state === 'trial'   ? 'Free Trial' :
+        d.state === 'expired' ? 'Expired' : 'Invalid Key';
+      document.getElementById('lic-trial-days').textContent =
+        d.state === 'valid' ? 'N/A — Licensed' :
+        d.trial_days_remaining + ' of ' + d.trial_total_days + ' days left';
+      document.getElementById('lic-trial-start').textContent = d.trial_start || '—';
+
+      // Status message
+      const msgEl = document.getElementById('lic-status-msg');
+      if (d.state === 'trial' && d.trial_days_remaining > 7) {
+        msgEl.style.display = 'block';
+        msgEl.style.background = 'rgba(30,80,140,0.15)';
+        msgEl.style.border = '1px solid #1e508c';
+        msgEl.innerHTML = `ℹ You are using Net-monit V11.0 on a <strong>free 30-day trial</strong>. You have <strong>${d.trial_days_remaining} days remaining</strong>. Enter a license key before the trial expires to retain full access.`;
+      } else if (d.state === 'trial' && d.trial_days_remaining <= 7) {
+        msgEl.style.display = 'block';
+        msgEl.style.background = 'rgba(180,130,0,0.15)';
+        msgEl.style.border = '1px solid #b8860b';
+        msgEl.innerHTML = `⚠ <strong>Trial expires soon</strong> — only <strong>${d.trial_days_remaining} day(s) remaining</strong>. Enter a license key now to avoid service interruption.`;
+      } else if (d.state === 'expired' || d.state === 'invalid') {
+        msgEl.style.display = 'block';
+        msgEl.style.background = 'rgba(180,30,30,0.15)';
+        msgEl.style.border = '1px solid #b22222';
+        msgEl.innerHTML = d.key_legacy
+          ? `✘ <strong>New license key required</strong> — the key saved on this installation was issued before V11.0 and is no longer accepted. Monitoring data is restricted. Send your vendor the Device ID and Activation Code shown above and enter the new key below.`
+          : `✘ <strong>License required</strong> — the free trial period has ended. Monitoring data is restricted. Enter your license key below to restore full access.`;
+        document.getElementById('restricted-features-card').style.display = 'block';
+      }
+
+      // Check session role
+      const role = sessionStorage.getItem('netmon_role');
+      if (d.state === 'valid') {
+        document.getElementById('activate-form').style.display = 'none';
+        document.getElementById('activate-locked-msg').style.display = 'none';
+        document.getElementById('already-licensed').style.display = 'block';
+      } else if (role === 'admin') {
+        document.getElementById('activate-form').style.display = 'block';
+        document.getElementById('activate-locked-msg').style.display = 'none';
+        document.getElementById('already-licensed').style.display = 'none';
+      } else {
+        document.getElementById('activate-form').style.display = 'none';
+        document.getElementById('activate-locked-msg').style.display = 'block';
+        document.getElementById('already-licensed').style.display = 'none';
+      }
+    })
+    .catch(() => {
+      document.getElementById('lic-device-id').value = 'Error loading';
+      document.getElementById('lic-act-code').value  = 'Error loading';
+    });
+}
+
+// Load on page ready
+document.addEventListener('DOMContentLoaded', loadLicenseStatus);
+// Also reload when auth state changes (login/logout)
+window.addEventListener('netmon-auth-change', loadLicenseStatus);
+</script>
+{% endblock %}

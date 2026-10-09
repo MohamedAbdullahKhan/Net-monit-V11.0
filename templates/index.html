@@ -1,0 +1,361 @@
+{% extends "base.html" %}
+{% block content %}
+
+<!-- Page header -->
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Infrastructure Overview</h1>
+    <p id="last-updated" class="page-sub">Live operational monitoring of network devices, uplinks, and application health.</p>
+  </div>
+  <div id="summary-bar" class="summary-bar"></div>
+</div>
+
+<!-- ── V7.2: Infrastructure Overview telemetry cards (NISM-inspired) ─────── -->
+<div class="io-cards" id="io-cards">
+  <div class="io-card">
+    <div class="io-card-top">
+      <span class="io-card-lbl">WAN Download</span>
+      <span class="io-card-icon io-icon-green">&#8595;</span>
+    </div>
+    <div class="io-card-val" id="io-download">-- <span class="io-card-unit">Mbps</span></div>
+    <div class="io-card-sub" id="io-isp">Run a speed test to populate</div>
+  </div>
+  <div class="io-card">
+    <div class="io-card-top">
+      <span class="io-card-lbl">WAN Upload</span>
+      <span class="io-card-icon io-icon-blue">&#8593;</span>
+    </div>
+    <div class="io-card-val" id="io-upload">-- <span class="io-card-unit">Mbps</span></div>
+    <div class="io-card-sub" id="io-ping">Ping: -- ms</div>
+  </div>
+  <div class="io-card">
+    <div class="io-card-top">
+      <span class="io-card-lbl">Network Devices</span>
+      <span class="io-card-icon io-icon-indigo">&#9639;</span>
+    </div>
+    <div class="io-card-val" id="io-devices-online">0 <span class="io-card-unit" id="io-devices-total">/ 0 Online</span></div>
+    <div class="io-card-sub" id="io-devices-msg">All nodes reporting online</div>
+  </div>
+  <div class="io-card">
+    <div class="io-card-top">
+      <span class="io-card-lbl">Web Application Availability</span>
+      <span class="io-card-icon io-icon-cyan">&#127760;</span>
+    </div>
+    <div class="io-card-val" id="io-apps-online">0 <span class="io-card-unit" id="io-apps-total">/ 0 Online</span></div>
+    <div class="io-card-sub" id="io-apps-msg">No web apps configured yet</div>
+  </div>
+</div>
+
+<style>
+.io-cards {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(220px,1fr));
+  gap: 14px; margin-bottom: 18px;
+}
+.io-card {
+  background: var(--bg-panel); border: 1px solid var(--border);
+  border-radius: var(--radius-sm); padding: 16px 18px;
+}
+.io-card-top { display:flex; align-items:center; justify-content:space-between; margin-bottom:10px; }
+.io-card-lbl { font-size:11px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; font-family:var(--font-mono); }
+.io-card-icon { width:32px;height:32px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:15px; }
+.io-icon-green  { background:rgba(50,200,100,.12); color:#32c864; }
+.io-icon-blue   { background:rgba(0,120,215,.12);  color:#0078d4; }
+.io-icon-indigo { background:rgba(99,102,241,.12);  color:#6366f1; }
+.io-icon-cyan   { background:rgba(34,211,238,.12);  color:#22d3ee; }
+.io-card-val  { font-size:26px; font-weight:800; font-family:var(--font-mono); color:var(--text-primary); }
+.io-card-unit { font-size:12px; font-weight:600; color:var(--text-muted); }
+.io-card-sub  { font-size:11px; color:var(--text-muted); margin-top:4px; }
+.io-card-sub.warn { color:var(--status-warning); font-weight:600; }
+.io-card-sub.crit { color:var(--status-critical); font-weight:600; }
+</style>
+
+<!-- ── V7.2 Category filter tabs ──────────────────────────────────── -->
+<div class="category-tabs" id="category-tabs" style="margin-bottom:12px;">
+  <button class="cat-tab active" data-cat="all" onclick="setCategory('all')">
+    General <span class="cat-count" id="cnt-all">0</span>
+  </button>
+  <button class="cat-tab" data-cat="network" onclick="setCategory('network')">
+    Network <span class="cat-count" id="cnt-network">0</span>
+  </button>
+  <button class="cat-tab" data-cat="firewall" onclick="setCategory('firewall')">
+    Firewall <span class="cat-count" id="cnt-firewall">0</span>
+  </button>
+  <button class="cat-tab" data-cat="windows" onclick="setCategory('windows')">
+    Windows <span class="cat-count" id="cnt-windows">0</span>
+  </button>
+  <button class="cat-tab" data-cat="linux" onclick="setCategory('linux')">
+    Linux <span class="cat-count" id="cnt-linux">0</span>
+  </button>
+  <button class="cat-tab" data-cat="url" onclick="setCategory('url')">
+    URL <span class="cat-count" id="cnt-url">0</span>
+  </button>
+</div>
+
+<!-- ── V7.2 Dashboard toolbar ──────────────────────────────────────── -->
+<div class="dashboard-toolbar" id="dash-toolbar" style="margin-bottom:14px;">
+
+  <!-- View type toggle: Grid / List -->
+  <div class="view-toggle" id="view-toggle-group">
+    <button id="btn-view-grid" class="active" title="Grid view" onclick="setViewType('grid')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="currentColor">
+        <rect x="3" y="3" width="8" height="8" rx="1"/><rect x="13" y="3" width="8" height="8" rx="1"/>
+        <rect x="3" y="13" width="8" height="8" rx="1"/><rect x="13" y="13" width="8" height="8" rx="1"/>
+      </svg>
+      Grid
+    </button>
+    <button id="btn-view-list" title="List view" onclick="setViewType('list')">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/>
+        <line x1="3" y1="18" x2="21" y2="18"/>
+      </svg>
+      List
+    </button>
+  </div>
+
+  <!-- Grid density: 2 / 3 / 4 / Auto — only shown in Grid view -->
+  <div class="grid-density-row" id="grid-density-row">
+    <span>Columns:</span>
+    <button onclick="setGridCols(2)" data-cols="2">2</button>
+    <button onclick="setGridCols(3)" data-cols="3">3</button>
+    <button onclick="setGridCols(4)" data-cols="4">4</button>
+    <button onclick="setGridCols(5)" data-cols="5">5</button>
+    <button onclick="setGridCols(0)" data-cols="0" class="active" title="Auto (responsive)">Auto</button>
+  </div>
+
+  <div class="spacer"></div>
+
+  <!-- Refresh indicator -->
+  <span id="refresh-spinner" style="font-size:12px;color:var(--text-muted);display:none;">↻ Refreshing…</span>
+
+  <!-- Edit Layout toggle (only visible when logged in) -->
+  <button id="btn-edit-layout" class="btn secondary"
+          style="display:none;"
+          onclick="toggleEditMode()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </svg>
+    Edit Layout
+  </button>
+
+  <!-- Add tile (admin only) -->
+  <button id="btn-add-tile" class="btn primary"
+          style="display:none;"
+          onclick="openQuickAdd()">
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+    </svg>
+    Add tile
+  </button>
+</div>
+
+<!-- Edit mode banner (hidden by default) -->
+<div id="edit-mode-banner" class="edit-mode-banner" style="display:none;">
+  <svg class="icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+    <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+    <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+  </svg>
+  <span>
+    <strong>Edit Layout</strong> — Drag tiles to reorder · Use size buttons or corner handle to resize ·
+    <span style="color:var(--text-muted);">Hidden tiles shown with 50% opacity</span>
+  </span>
+  <div class="spacer"></div>
+  <button class="btn danger small" onclick="resetLayout()" title="Revert to shared default layout"
+          style="padding:4px 10px;font-size:11.5px;">
+    Reset
+  </button>
+  <button class="btn secondary small" onclick="cancelEditMode()" style="padding:4px 10px;font-size:11.5px;">
+    Cancel
+  </button>
+  <button class="btn primary small" id="btn-save-layout" onclick="saveLayout()" style="padding:4px 10px;font-size:11.5px;">
+    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/>
+      <polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>
+    </svg>
+    Save Layout
+  </button>
+</div>
+
+<!-- Hidden tiles note -->
+<div id="hidden-tiles-note" style="display:none;align-items:center;gap:8px;margin-bottom:12px;
+  padding:8px 14px;background:rgba(242,184,75,.08);border:1px solid rgba(242,184,75,.25);
+  border-radius:var(--radius-sm);font-size:13px;">
+  <span style="color:var(--status-warning);">⚠</span>
+  <span><span class="hidden-count">0</span> device(s) hidden from dashboard — still monitored</span>
+  <button id="show-hidden-btn" class="btn secondary small" style="margin-left:auto;">Show all</button>
+</div>
+
+<!-- Device grid (class set dynamically by JS) -->
+<div id="device-grid" class="device-grid dash-grid"></div>
+
+<!-- Empty state -->
+<div id="empty-state" style="display:none;text-align:center;padding:60px 20px;color:var(--text-muted);">
+  <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"
+       style="margin-bottom:12px;opacity:.4">
+    <rect x="2" y="3" width="20" height="14" rx="2"/>
+    <line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/>
+  </svg>
+  <p style="font-size:15px;font-weight:600;margin-bottom:6px;">No devices yet</p>
+  <p style="font-size:13px;">Sign in as admin and click <strong>Add tile</strong> to get started.</p>
+</div>
+
+<!-- Tile context menu (right-click, used outside edit mode) -->
+<div id="tile-ctx-menu" style="display:none;position:fixed;z-index:9999;
+  background:var(--bg-card);border:1px solid var(--border);border-radius:var(--radius-sm);
+  box-shadow:0 8px 32px rgba(0,0,0,.45);min-width:190px;overflow:hidden;">
+  <div style="padding:6px 0;">
+    <div style="padding:5px 14px 4px;font-size:10.6px;color:var(--text-muted);
+         text-transform:uppercase;letter-spacing:.06em;">Tile options</div>
+    <button class="ctx-item" onclick="menuHideTile()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94"/>
+        <path d="M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19"/>
+        <line x1="1" y1="1" x2="23" y2="23"/>
+      </svg>
+      Hide tile (keep monitoring)
+    </button>
+    <button class="ctx-item danger" onclick="menuRemoveDevice()">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <polyline points="3 6 5 6 21 6"/>
+        <path d="M19 6l-1 14a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2L5 6"/>
+        <path d="M10 11v6"/><path d="M14 11v6"/><path d="M9 6V4h6v2"/>
+      </svg>
+      Remove device permanently
+    </button>
+    <div style="border-top:1px solid var(--border);margin:4px 0;"></div>
+    <div style="padding:5px 14px 3px;font-size:10.6px;color:var(--text-muted);
+         text-transform:uppercase;letter-spacing:.06em;">Resize tile</div>
+    <button class="ctx-item" onclick="menuResizeTile('normal')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="3" y="3" width="18" height="18" rx="2"/>
+      </svg>Normal (1×1)
+    </button>
+    <button class="ctx-item" onclick="menuResizeTile('wide')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="1" y="6" width="22" height="12" rx="2"/>
+      </svg>Wide (2×1)
+    </button>
+    <button class="ctx-item" onclick="menuResizeTile('tall')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="6" y="1" width="12" height="22" rx="2"/>
+      </svg>Tall (1×2)
+    </button>
+    <button class="ctx-item" onclick="menuResizeTile('large')">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+        <rect x="2" y="2" width="20" height="20" rx="2"/>
+        <line x1="2" y1="12" x2="22" y2="12"/><line x1="12" y1="2" x2="12" y2="22"/>
+      </svg>Large (2×2)
+    </button>
+  </div>
+</div>
+
+<!-- Quick-add tile modal -->
+<div id="quick-add-overlay" class="modal-overlay hidden">
+  <div class="modal-box" style="max-width:520px;max-height:90vh;overflow-y:auto;">
+    <div class="modal-header">
+      <span class="modal-title">Add tile to dashboard</span>
+      <button class="icon-btn" id="qa-close">✕</button>
+    </div>
+
+    <!-- Existing vs New tabs -->
+    <div style="display:flex;gap:2px;padding:14px 20px 0;border-bottom:1px solid var(--border);">
+      <button id="qa-tab-existing" class="qa-source-tab active" onclick="qaSwitchSource('existing')">
+        Existing Device
+      </button>
+      <button id="qa-tab-new" class="qa-source-tab" onclick="qaSwitchSource('new')">
+        New Device
+      </button>
+    </div>
+
+    <!-- EXISTING DEVICE PANE: checkbox list of all devices not yet on this user's dashboard -->
+    <div id="qa-pane-existing" style="padding:16px 20px;">
+      <p style="font-size:12.5px;color:var(--text-muted);margin-bottom:10px;">
+        Tick devices to show them on your dashboard. Unticking hides a tile without deleting the device
+        (it keeps monitoring in the background).
+      </p>
+      <input id="qa-existing-filter" type="text" placeholder="Filter by name or host..."
+             style="width:100%;margin-bottom:10px;background:var(--bg-input);border:1px solid var(--border);
+                    border-radius:var(--radius-sm);padding:7px 12px;color:var(--text-primary);font-size:13px;">
+      <div id="qa-existing-list" style="max-height:320px;overflow-y:auto;display:flex;flex-direction:column;gap:2px;">
+        <div style="color:var(--text-muted);font-size:13px;padding:12px 0;">Loading devices...</div>
+      </div>
+      <div style="display:flex;gap:10px;margin-top:14px;">
+        <button id="qa-existing-apply" class="btn primary" style="flex:1;">Apply changes</button>
+        <button class="btn secondary" onclick="closeQuickAdd()">Close</button>
+      </div>
+    </div>
+
+    <!-- NEW DEVICE PANE: original device-creation form -->
+    <div id="qa-pane-new" style="display:none;padding:16px 20px;flex-direction:column;gap:10px;">
+      <p style="font-size:12.5px;color:var(--text-muted);">Create a brand-new device to monitor.
+        Full options (SNMP, escalation, thresholds) available on the Devices page after creation.</p>
+      <div class="field">
+        <label>Type</label>
+        <select id="qa-kind">
+          <option value="server_ping">Network device / server (Ping)</option>
+          <option value="server_windows">Windows server (PowerShell)</option>
+          <option value="server_ssh">Linux server (SSH)</option>
+          <option value="shared_drive_windows">Shared drive (Windows)</option>
+          <option value="shared_drive_linux">Shared drive (Linux)</option>
+          <option value="url">Web application URL</option>
+        </select>
+      </div>
+      <div class="form-grid">
+        <div class="field">
+          <label>ID <span style="color:var(--text-muted);font-size:11px">(unique, no spaces)</span></label>
+          <input id="qa-id" type="text" placeholder="e.g. core-switch-01">
+        </div>
+        <div class="field">
+          <label>Display name</label>
+          <input id="qa-name" type="text" placeholder="Core Switch 01">
+        </div>
+      </div>
+      <div class="field">
+        <label>Host / IP / URL</label>
+        <input id="qa-host" type="text" placeholder="192.168.1.1 or https://example.com">
+      </div>
+      <div class="field" id="qa-path-field" style="display:none;">
+        <label>Path (UNC or mount)</label>
+        <input id="qa-path" type="text" placeholder="\\server\share or /mnt/share">
+      </div>
+      <div id="qa-cred-fields"></div>
+      <div id="qa-metric-fields"></div>
+      <div style="display:flex;gap:10px;margin-top:6px;">
+        <button id="qa-submit" class="btn primary" style="flex:1;">Add &amp; monitor</button>
+        <button id="qa-cancel" class="btn secondary">Cancel</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.qa-source-tab {
+  background:none;border:none;border-bottom:2px solid transparent;
+  color:var(--text-secondary);font-size:13px;font-weight:600;
+  padding:8px 16px;cursor:pointer;transition:color .15s,border-color .15s;
+}
+.qa-source-tab:hover { color:var(--text-primary); }
+.qa-source-tab.active { color:var(--accent);border-bottom-color:var(--accent); }
+.qa-existing-row {
+  display:flex;align-items:center;gap:10px;padding:8px 10px;border-radius:var(--radius-sm);
+  transition:background .1s;
+}
+.qa-existing-row:hover { background:var(--bg-hover); }
+.qa-existing-row input[type=checkbox] { width:16px;height:16px;cursor:pointer;flex-shrink:0; }
+.qa-existing-meta { font-size:11px;color:var(--text-muted);margin-left:auto;white-space:nowrap; }
+.qa-cat-group { margin-bottom:14px; }
+.qa-cat-group-hdr {
+  font-size:11px;font-weight:700;color:var(--text-muted);text-transform:uppercase;
+  letter-spacing:.5px;padding:4px 10px;margin-bottom:2px;
+  display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border);
+}
+.qa-cat-count {
+  background:var(--bg-hover);color:var(--text-secondary);border-radius:9px;
+  padding:0 6px;font-size:10px;font-weight:700;
+}
+</style>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

@@ -1,0 +1,9 @@
+Net-monit -- first-run admin credentials
+=========================================
+Email : admin@email.com
+Token : *nz&@UBFG34a
+
+This file is deleted automatically the first time you log in
+with this account. Change or remove the account from the
+Admin Panel once you're in -- don't leave this as your
+permanent admin credential.

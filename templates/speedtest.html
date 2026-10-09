@@ -1,0 +1,1016 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">WAN Speed Test</h1>
+    <p class="page-sub">Test the WAN (internet) connection of this server, or test the internet speed of whichever PC you're viewing this page from — each shows separately, with the testing PC's local IP, hostname, and public IP.</p>
+  </div>
+  <div style="display:flex;gap:8px;">
+    <button class="btn" id="csv-btn" onclick="exportCSV()" style="font-size:12px;">&#8681; Export CSV</button>
+    <button class="btn" id="purge-btn" onclick="purgeHistory()" style="font-size:12px;color:var(--status-critical);">&#128465; Purge Logs</button>
+  </div>
+</div>
+
+<div style="display:grid;grid-template-columns:340px 1fr;gap:18px;margin-bottom:18px;" id="st-main-grid">
+  <!-- Gauge card -->
+  <div class="card" style="padding:22px;display:flex;flex-direction:column;align-items:center;justify-content:space-between;">
+    <div style="width:100%;">
+      <h2 class="card-title" style="margin:0 0 2px;">Diagnostic Interface</h2>
+      <p style="font-size:12px;color:var(--text-muted);margin:0;">
+        Showing: <strong id="showing-badge" style="color:var(--accent);">--</strong>
+      </p>
+    </div>
+
+    <div style="position:relative;width:220px;height:220px;margin:14px 0;">
+      <svg id="gauge-dial" viewBox="0 0 220 220" style="width:100%;height:100%;"></svg>
+      <div id="gauge-val-wrap" style="position:absolute;left:0;right:0;bottom:34px;text-align:center;pointer-events:none;">
+        <div id="gauge-val" style="font-size:30px;font-weight:800;font-family:var(--font-mono);color:var(--status-ok);line-height:1;">--</div>
+        <div id="gauge-val-label" style="font-size:9px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.5px;margin-top:3px;">Mbps Download</div>
+      </div>
+    </div>
+
+    <div id="gauge-sub" style="display:flex;gap:18px;font-size:12px;font-family:var(--font-mono);margin-bottom:16px;">
+      <span style="color:#22c55e;">&#8595; <strong id="gauge-dl">--</strong> Mbps</span>
+      <span style="color:#a855f7;">&#8593; <strong id="gauge-up">--</strong> Mbps</span>
+      <span>Ping <strong id="gauge-ping">--</strong> ms</span>
+    </div>
+
+    <div style="display:flex;gap:8px;width:100%;">
+      <button id="run-btn" class="btn primary" onclick="runTest()" style="flex:1;font-size:13px;padding:11px 6px;">
+        &#9654; Test WAN Speed
+      </button>
+      <button id="run-client-btn" class="btn primary" onclick="runClientTest()" style="flex:1;font-size:13px;padding:11px 6px;background:var(--accent);">
+        &#128187; Test Your PC Speed
+      </button>
+    </div>
+    <div id="run-status" style="font-size:12px;color:var(--text-muted);margin-top:10px;text-align:center;">
+      "Test WAN Speed" measures this server's own WAN link. "Test Your PC Speed" measures the internet connection of the PC you're viewing this page from, right in your browser.
+    </div>
+    <div id="run-note" style="display:none;font-size:11.5px;line-height:1.45;margin-top:6px;text-align:center;"></div>
+  </div>
+
+  <!-- WAN telemetry card -->
+  <div class="card" style="padding:22px;">
+    <h2 class="card-title" style="margin:0 0 2px;">WAN Telemetry</h2>
+    <p style="font-size:12px;color:var(--text-muted);margin:0 0 16px;">Uplink IP allocation, carrier, and connection stability.</p>
+
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:18px;">
+      <div class="wan-tile">
+        <div class="wan-tile-lbl">ISP / Carrier</div>
+        <div class="wan-tile-val" id="val-isp" style="font-size:14px;word-break:break-word;">--</div>
+      </div>
+      <div class="wan-tile">
+        <div class="wan-tile-lbl">Public IP</div>
+        <div class="wan-tile-val" id="val-ip" style="color:#22d3ee;">--</div>
+      </div>
+      <div class="wan-tile">
+        <div class="wan-tile-lbl">Latency</div>
+        <div class="wan-tile-val" id="val-lat2" style="color:var(--status-ok);">--</div>
+      </div>
+      <div class="wan-tile">
+        <div class="wan-tile-lbl">Jitter</div>
+        <div class="wan-tile-val" id="val-jitter" style="color:var(--status-warning);">--</div>
+      </div>
+      <div class="wan-tile">
+        <div class="wan-tile-lbl">Local IP <span style="text-transform:none;">(V10.0)</span></div>
+        <div class="wan-tile-val" id="val-localip" style="font-size:14px;color:#a78bfa;">--</div>
+      </div>
+      <div class="wan-tile">
+        <div class="wan-tile-lbl">Hostname</div>
+        <div class="wan-tile-val" id="val-hostname" style="font-size:14px;word-break:break-word;">--</div>
+      </div>
+    </div>
+
+    <div style="position:relative;height:190px;">
+      <canvas id="speed-chart" style="width:100%;height:100%;"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- History table -->
+<div class="card">
+  <div style="padding:14px 22px 6px;display:flex;justify-content:space-between;align-items:center;">
+    <h2 class="card-title" style="margin:0;">Diagnostics Activity Log</h2>
+    <span style="font-size:12px;color:var(--text-muted);" id="history-count"></span>
+  </div>
+  <div style="overflow-x:auto;">
+    <table class="data-table" id="history-table">
+      <thead>
+        <tr>
+          <th>Timestamp</th><th>Source</th><th>Target</th><th>Download</th><th>Upload</th>
+          <th>Latency</th><th>Jitter</th><th>Local IP</th><th>Hostname</th><th>Public IP</th><th>ISP</th><th>Duration</th>
+        </tr>
+      </thead>
+      <tbody id="history-body">
+        <tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px;">
+          No speed tests recorded yet.
+        </td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<style>
+.wan-tile { background:var(--bg-hover);border:1px solid var(--border);border-radius:var(--radius-sm);padding:12px 14px; }
+.wan-tile-lbl { font-size:10px;color:var(--text-muted);text-transform:uppercase;letter-spacing:.4px;margin-bottom:4px; }
+.wan-tile-val { font-size:16px;font-weight:700;font-family:var(--font-mono); }
+@media (max-width: 760px) { #st-main-grid { grid-template-columns: 1fr !important; } }
+</style>
+
+<script>
+let historyRows = [];
+
+async function loadHistory() {
+  initGaugeDial();  // build the dial immediately -- don't wait on history existing
+  try {
+    const r = await fetch('/api/speedtest/history?limit=30',
+                          {headers:{'X-Session-Token':getSession()}});
+    historyRows = await r.json();
+    renderHistory(historyRows);
+    if (historyRows.length) applyLatestToGauge(historyRows[0]);
+  } catch(e) { console.error(e); }
+}
+
+// V10.7: null means "that direction could not be measured" -- show a dash, never a made-up 0.
+function _fmt(v, digits) {
+  return (v === null || v === undefined || v === '' || !isFinite(Number(v))) ? '--' : Number(v).toFixed(digits);
+}
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+
+function applyLatestToGauge(r) {
+  setGaugePhase('download');
+  setGauge(r.download_mbps);
+  document.getElementById('gauge-dl').textContent    = _fmt(r.download_mbps, 1);
+  document.getElementById('gauge-up').textContent    = _fmt(r.upload_mbps, 1);
+  document.getElementById('gauge-ping').textContent  = _fmt(r.latency_ms, 0);
+  document.getElementById('val-isp').textContent     = r.isp || '--';
+  document.getElementById('val-ip').textContent      = r.public_ip || '--';
+  document.getElementById('val-lat2').textContent    = (r.latency_ms != null ? _fmt(r.latency_ms, 1) + ' ms' : '--');
+  document.getElementById('val-jitter').textContent  = (r.jitter_ms != null ? _fmt(r.jitter_ms, 1) + ' ms' : '--');
+  document.getElementById('val-localip').textContent = r.local_ip || '--';
+  document.getElementById('val-hostname').textContent = r.hostname || '(unknown — reverse DNS unavailable for this network)';
+  const badge = document.getElementById('showing-badge');
+  if (badge) {
+    const isClient = r.test_source === 'client';
+    // V10.7: was "This server" / "Your connection" -- now says what is actually being shown
+    badge.textContent = isClient ? ('Your PC' + (r.hostname ? ' (' + r.hostname + ')' : '')) : 'WAN';
+    badge.style.color = isClient ? 'var(--accent)' : 'var(--status-ok)';
+  }
+}
+
+/* ================================================================
+   Analog speedometer dial
+   V10.0: 270-degree gauge -- tick marks, numbered scale, rotating needle.
+   V10.7: three changes, all asked for:
+     * COLOUR BY PHASE, not by "how good is this number". It used to turn
+       red under 10 Mbps and yellow under 50, which is why a live reading
+       looked orange/red while the digital value said "--". Now: download
+       is green, upload is purple (latency blue) -- like speedtest.net.
+     * A coloured progress arc fills behind the needle, so the live speed
+       reads at a glance. (dash-offset on one path: CSS can animate it.)
+     * NON-LINEAR scale (0 5 10 25 50 100 250 500 1000), also like
+       speedtest.net. On the old linear 0-500 dial a 6.5 Mbps result sat
+       on the zero mark and a 1 Gbps line pinned the needle.
+   ================================================================ */
+const GAUGE_CX = 110, GAUGE_CY = 110, GAUGE_R = 92;
+const GAUGE_SCALE = [0, 5, 10, 25, 50, 100, 250, 500, 1000];
+const GAUGE_MAX = GAUGE_SCALE[GAUGE_SCALE.length - 1];
+const GAUGE_START_DEG = -135, GAUGE_END_DEG = 135;   // 270 degree sweep, gap at the bottom
+const GAUGE_ARC_LEN = GAUGE_R * (GAUGE_END_DEG - GAUGE_START_DEG) * Math.PI / 180;
+const GAUGE_COLORS = { download: '#22c55e', upload: '#a855f7', ping: '#38bdf8', idle: '#64748b' };
+const GAUGE_LABELS = { download: 'Mbps Download', upload: 'Mbps Upload', ping: 'Latency', idle: 'Mbps' };
+let _gaugePhase = 'download';
+
+function _gaugePoint(angleDeg, radius) {
+  const rad = angleDeg * Math.PI / 180;
+  return { x: GAUGE_CX + radius * Math.sin(rad), y: GAUGE_CY - radius * Math.cos(rad) };
+}
+function _gaugeFraction(mbps) {
+  const v = Math.max(0, Number(mbps) || 0);
+  if (v >= GAUGE_MAX) return 1;
+  for (let i = 0; i < GAUGE_SCALE.length - 1; i++) {
+    const a = GAUGE_SCALE[i], b = GAUGE_SCALE[i + 1];
+    if (v <= b) return (i + (v - a) / (b - a)) / (GAUGE_SCALE.length - 1);
+  }
+  return 1;
+}
+function _gaugeAngleForValue(mbps) {
+  return GAUGE_START_DEG + _gaugeFraction(mbps) * (GAUGE_END_DEG - GAUGE_START_DEG);
+}
+
+function initGaugeDial() {
+  const svg = document.getElementById('gauge-dial');
+  if (!svg || svg.dataset.built) return;
+  const a = _gaugePoint(GAUGE_START_DEG, GAUGE_R), b = _gaugePoint(GAUGE_END_DEG, GAUGE_R);
+  const arcD = `M ${a.x.toFixed(1)} ${a.y.toFixed(1)} A ${GAUGE_R} ${GAUGE_R} 0 1 1 ${b.x.toFixed(1)} ${b.y.toFixed(1)}`;
+  const L = GAUGE_ARC_LEN.toFixed(1);
+
+  let svgHtml = `<path d="${arcD}" fill="none" stroke="var(--border)" stroke-width="10" stroke-linecap="round"/>`;
+  svgHtml += `<path id="gauge-arc" d="${arcD}" fill="none" stroke="${GAUGE_COLORS.idle}" stroke-width="10"
+      stroke-linecap="round" stroke-dasharray="${L}" stroke-dashoffset="${L}" opacity="0.85"
+      style="transition:stroke-dashoffset .3s linear,stroke .25s;"/>`;
+
+  for (let i = 0; i < GAUGE_SCALE.length; i++) {
+    const v = GAUGE_SCALE[i];
+    const angle = _gaugeAngleForValue(v);
+    const p1 = _gaugePoint(angle, GAUGE_R), p2 = _gaugePoint(angle, 78);
+    const lbl = _gaugePoint(angle, 62);
+    svgHtml += `<line x1="${p1.x.toFixed(1)}" y1="${p1.y.toFixed(1)}" x2="${p2.x.toFixed(1)}" y2="${p2.y.toFixed(1)}"
+        stroke="var(--text-muted)" stroke-width="2"/>`;
+    svgHtml += `<text x="${lbl.x.toFixed(1)}" y="${lbl.y.toFixed(1)}" fill="var(--text-muted)" font-size="9.5"
+        font-family="var(--font-mono)" text-anchor="middle" dominant-baseline="middle">${v}</text>`;
+  }
+
+  // Needle -- a rotatable group pivoting on the dial's centre; angle set by setGauge()
+  svgHtml += `<g id="gauge-needle-grp" style="transform-origin:${GAUGE_CX}px ${GAUGE_CY}px;transition:transform .3s linear;transform:rotate(${GAUGE_START_DEG}deg);">
+      <polygon id="gauge-needle" points="${GAUGE_CX-4},${GAUGE_CY} ${GAUGE_CX+4},${GAUGE_CY} ${GAUGE_CX+1.5},${GAUGE_CY-74} ${GAUGE_CX-1.5},${GAUGE_CY-74}"
+        fill="${GAUGE_COLORS.idle}" style="transition:fill .25s;"/>
+    </g>
+    <circle cx="${GAUGE_CX}" cy="${GAUGE_CY}" r="7" fill="var(--bg-panel)" stroke="var(--border)" stroke-width="2"/>`;
+
+  svg.innerHTML = svgHtml;
+  svg.dataset.built = '1';
+}
+
+// Which phase the dial is showing: sets needle, arc and digital readout colour, and the unit label.
+function setGaugePhase(phase, label) {
+  _gaugePhase = GAUGE_COLORS[phase] ? phase : 'download';
+  const c = GAUGE_COLORS[_gaugePhase];
+  const lbl = document.getElementById('gauge-val-label');
+  if (lbl) lbl.textContent = label || GAUGE_LABELS[_gaugePhase];
+  const needle = document.getElementById('gauge-needle');
+  const arc = document.getElementById('gauge-arc');
+  const val = document.getElementById('gauge-val');
+  if (needle) needle.style.fill = c;
+  if (arc) arc.style.stroke = c;
+  if (val) val.style.color = c;
+}
+
+// live=true: follow a stream of samples (short linear glide); live=false: settle on a final value (ease-out).
+function _gaugeSetFraction(frac, live) {
+  const angle = GAUGE_START_DEG + frac * (GAUGE_END_DEG - GAUGE_START_DEG);
+  const grp = document.getElementById('gauge-needle-grp');
+  const arc = document.getElementById('gauge-arc');
+  const glide = live ? 'linear' : 'cubic-bezier(.22,.61,.36,1)';
+  const secs  = live ? '.3s' : '.6s';
+  if (grp) { grp.style.transition = 'transform ' + secs + ' ' + glide; grp.style.transform = `rotate(${angle}deg)`; }
+  if (arc) {
+    arc.style.transition = 'stroke-dashoffset ' + secs + ' ' + glide + ',stroke .25s';
+    arc.style.strokeDashoffset = (GAUGE_ARC_LEN * (1 - frac)).toFixed(1);
+  }
+}
+
+function setGauge(mbps, live) {
+  initGaugeDial();
+  const known = !(mbps === null || mbps === undefined || !isFinite(Number(mbps)));
+  const v = known ? Number(mbps) : 0;
+  _gaugeSetFraction(_gaugeFraction(v), !!live);
+  const valEl = document.getElementById('gauge-val');
+  if (valEl) valEl.textContent = (known && v > 0) ? v.toFixed(1) : '--';
+}
+
+// A phase with no live speed to show (latency; speedtest-cli): needle at rest, readout says so honestly.
+function setGaugeWorking(label) {
+  setGauge(null, false);
+  const valEl = document.getElementById('gauge-val');
+  if (valEl) valEl.textContent = '…';
+  const lbl = document.getElementById('gauge-val-label');
+  if (lbl && label) lbl.textContent = label;
+}
+
+function renderHistory(rows) {
+  document.getElementById('history-count').textContent = rows.length ? (rows.length + ' test(s)') : '';
+  const tbody = document.getElementById('history-body');
+  if (!rows.length) {
+    tbody.innerHTML = '<tr><td colspan="12" style="text-align:center;color:var(--text-muted);padding:24px;">No results yet.</td></tr>';
+    renderChart([]);
+    return;
+  }
+  tbody.innerHTML = rows.map(function(r) {
+    const dt = new Date(r.ts*1000).toLocaleString();
+    const isClient = r.test_source === 'client';
+    // V10.7: "Server"/"Browser" -> "WAN"/"PC", matching the two buttons; the WAN badge used to be
+    // dim grey on dark and nearly invisible.
+    const srcBadge = isClient
+      ? '<span style="background:var(--accent);color:#fff;font-size:10.6px;font-weight:700;padding:2px 9px;border-radius:10px;white-space:nowrap;">&#128187; PC</span>'
+      : '<span style="background:#0e7490;color:#fff;font-size:10.6px;font-weight:700;padding:2px 9px;border-radius:10px;white-space:nowrap;">&#127760; WAN</span>';
+    const target = r.server || '';
+    return '<tr>' +
+      '<td>' + dt + '</td>' +
+      '<td>' + srcBadge + '</td>' +
+      '<td style="font-size:12px;max-width:170px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + _esc((r.method_used || '') + (target ? ' — ' + target : '')) + '">' + (_esc(target) || '--') + '</td>' +
+      '<td style="color:' + GAUGE_COLORS.download + ';font-weight:600;">' + (r.download_mbps != null ? _fmt(r.download_mbps, 1) + ' Mbps' : '--') + '</td>' +
+      '<td style="color:' + GAUGE_COLORS.upload + ';font-weight:600;">' + (r.upload_mbps != null ? _fmt(r.upload_mbps, 1) + ' Mbps' : '--') + '</td>' +
+      '<td>' + (r.latency_ms != null ? _fmt(r.latency_ms, 1) + ' ms' : '--') + '</td>' +
+      '<td style="color:var(--status-warning);">' + (r.jitter_ms != null ? _fmt(r.jitter_ms, 1) + ' ms' : '--') + '</td>' +
+      '<td style="font-family:var(--font-mono);font-size:12px;color:#a78bfa;">' + _esc(r.local_ip || '--') + '</td>' +
+      '<td style="font-size:12px;">' + _esc(r.hostname || '--') + '</td>' +
+      '<td style="font-family:var(--font-mono);font-size:12px;color:#22d3ee;">' + _esc(r.public_ip || '--') + '</td>' +
+      '<td style="font-size:12px;" title="' + _esc(r.isp || '') + '">' + _esc((r.isp || '--').slice(0,20)) + '</td>' +
+      '<td>' + (r.elapsed_sec != null ? _esc(r.elapsed_sec) + 's' : '--') + '</td>' +
+    '</tr>';
+  }).join('');
+  renderChart(rows.slice().reverse());
+}
+
+function renderChart(rows) {
+  const canvas = document.getElementById('speed-chart');
+  const ctx = canvas.getContext('2d');
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width  = (rect.width || 500) * dpr;
+  canvas.height = (rect.height || 190) * dpr;
+  ctx.scale(dpr, dpr);
+  const W = rect.width || 500, H = rect.height || 190;
+  const PAD = {top:16,right:16,bottom:26,left:44};
+  const cw = W-PAD.left-PAD.right, ch = H-PAD.top-PAD.bottom;
+
+  ctx.clearRect(0,0,W,H);
+  if (!rows.length) return;
+
+  // null = that direction wasn't measured: leave a gap in the line instead of plotting a fake 0
+  const dlVals = rows.map(function(r){return r.download_mbps == null ? null : Number(r.download_mbps);});
+  const ulVals = rows.map(function(r){return r.upload_mbps == null ? null : Number(r.upload_mbps);});
+  const known = dlVals.concat(ulVals).filter(function(v){return v !== null;});
+  const maxVal = Math.max.apply(null, known.concat([10]));
+  const n = rows.length;
+  const xStep = cw/(n>1?n-1:1);
+
+  const borderColor = getComputedStyle(document.body).getPropertyValue('--border') || '#333';
+  const mutedColor  = getComputedStyle(document.body).getPropertyValue('--text-muted') || '#888';
+
+  ctx.strokeStyle = borderColor; ctx.lineWidth = 1;
+  [0,0.25,0.5,0.75,1].forEach(function(f) {
+    const y = PAD.top + ch*(1-f);
+    ctx.beginPath(); ctx.moveTo(PAD.left,y); ctx.lineTo(PAD.left+cw,y); ctx.stroke();
+    ctx.fillStyle = mutedColor; ctx.font = '10px Segoe UI';
+    ctx.fillText((maxVal*f).toFixed(0), 4, y+4);
+  });
+
+  function drawLine(vals, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2.5;
+    ctx.beginPath();
+    let pen = false;
+    vals.forEach(function(v,i) {
+      if (v === null) { pen = false; return; }
+      const x = PAD.left + i*xStep, y = PAD.top + ch*(1 - v/maxVal);
+      if (!pen) { ctx.moveTo(x,y); pen = true; } else { ctx.lineTo(x,y); }
+    });
+    ctx.stroke();
+    vals.forEach(function(v,i) {
+      if (v === null) return;
+      const x = PAD.left + i*xStep, y = PAD.top + ch*(1-v/maxVal);
+      ctx.beginPath(); ctx.arc(x,y,3,0,Math.PI*2); ctx.fillStyle=color; ctx.fill();
+    });
+  }
+  drawLine(dlVals, GAUGE_COLORS.download);
+  drawLine(ulVals, GAUGE_COLORS.upload);
+
+  ctx.font='11px Segoe UI';
+  ctx.fillStyle=GAUGE_COLORS.download; ctx.fillRect(W-118,6,12,4); ctx.fillText('Download',W-102,12);
+  ctx.fillStyle=GAUGE_COLORS.upload;   ctx.fillRect(W-118,18,12,4); ctx.fillText('Upload',W-102,24);
+}
+
+/* ═══════════════════════════════════════════════════════════
+   V10.4: "Test WAN Speed" -- two paths, tried in this order.
+     1. LIVE      (V10.1+): POST /api/speedtest/run-async, then poll
+                  /api/speedtest/status/<id>; real in-flight samples drive
+                  the gauge (see speedtest_check.check()'s progress_cb).
+     2. STANDARD  (V10.0, proven): ONE blocking POST /api/speedtest/run.
+                  Used automatically when the live path cannot start or its
+                  job ends in an error, so the button always finishes with
+                  a result or a clear reason.
+   No fallback (it would double-run the test, or cannot help): expired login,
+   overall time limit reached (the server-side job may still be running),
+   lost contact with the server while polling.
+   V10.7: the page now follows the test the way speedtest.net's does -- latency,
+   then DOWNLOAD (green needle rising with the live speed), then the needle
+   drops back and UPLOAD runs (purple) -- polled every 250 ms and eased so the
+   needle glides instead of stepping. The status line also names the engine, the
+   target and the round-trip time, because the number only means something
+   together with what it was measured against. In STANDARD mode the needle no
+   longer sweeps on a timer (that was an animation, not a measurement): the
+   readout honestly says it is working.
+   ═══════════════════════════════════════════════════════════ */
+const LIVE_POLL_MS        = 250;
+const LIVE_MAX_WAIT_MS    = 150000;  // normal test ~25 s; 150 s means something is stuck
+const LIVE_MAX_POLL_FAILS = 5;       // consecutive failed polls tolerated before giving up
+
+function _noFallback(msg) { const e = new Error(msg); e.noFallback = true; return e; }
+function _sleep(ms) { return new Promise(function(res) { setTimeout(res, ms); }); }
+
+// The second line under the buttons: what was measured, and anything that only partly worked.
+function _setNote(text, warn) {
+  const n = document.getElementById('run-note');
+  if (!n) return;
+  n.textContent = text || '';
+  n.style.display = text ? 'block' : 'none';
+  n.style.color = warn ? 'var(--status-warning)' : 'var(--text-muted)';
+}
+
+function _resetSubRow() {
+  ['gauge-dl', 'gauge-up', 'gauge-ping'].forEach(function(id) {
+    const el = document.getElementById(id);
+    if (el) el.textContent = '--';
+  });
+}
+
+function _showServerResult(stat, d, extraNote) {
+  if (d.reachable) {
+    applyLatestToGauge(d);
+    const how = d.method_used === 'speedtest-cli' ? 'speedtest-cli' : 'the built-in test';
+    stat.textContent = 'Complete — ' + (d.elapsed_sec || '?') + ' s via ' + how + '.';
+    stat.style.color = 'var(--status-ok)';
+    _setNote([d.note, d.warning, extraNote].filter(Boolean).join(' '), !!d.warning);
+    loadHistory();
+  } else {
+    stat.textContent = 'Failed: ' + (d.error || 'Test failed');
+    stat.style.color = 'var(--status-critical)';
+    setGaugePhase('idle');
+    setGauge(0);
+    _setNote('');
+  }
+}
+
+function _liveStatus(phase, p, info) {
+  const where = info.target
+    ? ' · ' + info.target + (info.rtt !== undefined ? ' · ' + Number(info.rtt).toFixed(0) + ' ms' : '')
+    : '';
+  if (phase === 'ping') return 'Finding the best server and measuring latency…' + where;
+  const noLive = (p.mbps === null || p.mbps === undefined);
+  return 'Measuring ' + (phase === 'upload' ? 'upload' : 'download') + '… ' +
+         (p.elapsed_sec || 0).toFixed(0) + ' s' +
+         (noLive ? ' — the number appears when this step ends' : '') + where;
+}
+
+// Path 1 -- live progress via job + polling.
+// V10.1: this used to be a setInterval sweeping the needle by elapsed time
+// alone -- the digital Mbps readout never updated during the test at all
+// (only applyLatestToGauge() at the very end touched it). run-async + status
+// give real in-flight samples the same way the client-side test already did.
+async function _liveServerTest(stat) {
+  const startR = await fetch('/api/speedtest/run-async', {
+    method: 'POST',
+    headers: {'X-Session-Token': getSession(), 'Content-Type': 'application/json'}
+  });
+  let startD = {};
+  try { startD = await startR.json(); } catch (_) { /* non-JSON body: handled just below */ }
+  if (startR.status === 401) throw _noFallback(startD.error || 'Login required');
+  if (!startD.job_id) throw new Error(startD.error || ('Could not start test (HTTP ' + startR.status + ')'));
+
+  const t0 = Date.now();
+  let lastPhase = null, pollFails = 0, lastDl = null;
+  const info = {};
+  setGaugePhase('ping');
+  setGaugeWorking('Latency');
+  stat.textContent = 'Finding the best server and measuring latency…';
+
+  for (;;) {
+    await _sleep(LIVE_POLL_MS);
+    if (Date.now() - t0 > LIVE_MAX_WAIT_MS) throw _noFallback('Timed out waiting for the speed test to finish');
+
+    let job;
+    try {
+      const r = await fetch('/api/speedtest/status/' + startD.job_id, {headers: {'X-Session-Token': getSession()}});
+      if (r.status === 401) throw _noFallback('Login required');
+      job = await r.json();
+      pollFails = 0;
+    } catch (pe) {
+      if (pe.noFallback) throw pe;
+      if (++pollFails >= LIVE_MAX_POLL_FAILS) throw _noFallback('Lost contact with the server while testing (' + pe.message + ')');
+      continue;   // transient network blip -- just poll again
+    }
+    if (job.error) throw new Error(job.error);
+    if (job.status === 'done')  { _showServerResult(stat, job.result || {}); return; }
+    if (job.status === 'error') throw new Error((job.result && job.result.error) || 'Test failed');
+
+    const p = job.progress || {};
+    if (p.engine) info.engine = p.engine;
+    if (p.target) info.target = p.target;
+    if (p.rtt_ms !== undefined && p.rtt_ms !== null) info.rtt = p.rtt_ms;
+
+    const phase = (job.phase === 'download' || job.phase === 'upload') ? job.phase : 'ping';
+    if (phase !== lastPhase) {
+      // new phase: keep the finished download on the sub-row, colour the dial for this phase, needle back to rest
+      if (phase === 'upload' && lastDl !== null) document.getElementById('gauge-dl').textContent = _fmt(lastDl, 1);
+      lastPhase = phase;
+      setGaugePhase(phase);
+      setGaugeWorking(GAUGE_LABELS[phase]);
+    }
+    if (p.mbps !== null && p.mbps !== undefined) {
+      setGauge(p.mbps, true);               // live-updating needle + digital value, real samples
+      if (phase === 'download') lastDl = p.mbps;
+    }
+    stat.textContent = _liveStatus(phase, p, info);
+  }
+}
+
+// Path 2 -- the original V10.0 flow: one blocking request. The server cannot stream samples here,
+// so the readout says it is working instead of animating a needle that is not tied to any speed.
+async function _standardServerTest(stat, liveErr) {
+  const EXPECTED_SEC = 25;
+  let elapsed = 0;
+  const lead = liveErr ? 'Live view unavailable — running the standard test. ' : '';
+  setGaugePhase('download');
+  setGaugeWorking('Measuring');
+  const timer = setInterval(function() {
+    elapsed += 1;
+    stat.textContent = lead + 'Measuring this connection… ' + elapsed + ' s / ~' + EXPECTED_SEC + ' s';
+  }, 1000);
+  stat.textContent = lead + 'Measuring this connection… 0 s / ~' + EXPECTED_SEC + ' s';
+  try {
+    const r = await fetch('/api/speedtest/run', {
+      method: 'POST',
+      headers: {'X-Session-Token': getSession(), 'Content-Type': 'application/json'}
+    });
+    const d = await r.json();
+    clearInterval(timer);
+    const note = liveErr ? 'Standard mode — the live view failed: ' + String(liveErr.message || liveErr).slice(0, 120) + '.' : '';
+    _showServerResult(stat, d, note);
+  } finally {
+    clearInterval(timer);
+  }
+}
+
+async function runTest() {
+  const btn  = document.getElementById('run-btn');
+  const stat = document.getElementById('run-status');
+  btn.disabled = true;
+  document.getElementById('run-client-btn').disabled = true;
+  btn.textContent = 'Testing...';
+  stat.style.color = 'var(--text-secondary)';
+  _setNote('');
+  _resetSubRow();
+  const badge = document.getElementById('showing-badge');
+  if (badge) { badge.textContent = 'WAN'; badge.style.color = 'var(--status-ok)'; }
+  initGaugeDial();
+  setGaugePhase('ping');
+  setGauge(0);
+
+  try {
+    try {
+      await _liveServerTest(stat);
+    } catch (liveErr) {
+      if (liveErr && liveErr.noFallback) throw liveErr;
+      console.warn('Net-monit: live speed test failed, using the standard test instead:', liveErr);
+      initGaugeDial();
+      await _standardServerTest(stat, liveErr);
+    }
+  } catch(e) {
+    stat.textContent = 'Request failed: ' + e.message;
+    stat.style.color = 'var(--status-critical)';
+    setGaugePhase('idle');
+    setGauge(0);
+  }
+  btn.disabled = false;
+  document.getElementById('run-client-btn').disabled = false;
+  btn.textContent = '▶ Test WAN Speed';
+}
+
+/* ═══════════════════════════════════════════════════════════
+   V8.6: Client-side ("Test Your PC Speed") speed test engine.
+   Runs entirely in THIS browser, against Cloudflare's public speed
+   test endpoints (speed.cloudflare.com/__down and /__up -- the same
+   infrastructure that powers speed.cloudflare.com itself, and the
+   basis of the @cloudflare/speedtest npm package meant for exactly
+   this kind of third-party embedding). Mirrors the sampling technique
+   already used server-side in monitor/checkers/speedtest_check.py's
+   Cloudflare fallback: repeated timed chunk transfers, averaged by
+   total-bytes/total-time rather than a single instantaneous reading.
+
+   Public IP is fetched directly by THIS browser from ipify.org --
+   deliberately NOT proxied through the Net-monit server, or it would
+   just show the server's own public IP again, defeating the entire
+   point of this feature.
+═══════════════════════════════════════════════════════════ */
+async function _cfDownloadMbps(targetDurationSec, chunkBytes, onSample, streams) {
+  // V8.7: `streams` (default 6) parallel connections -- was 1, sequential.
+  // A single TCP stream can't fill a 300+ Mbps pipe no matter the chunk
+  // size, which is exactly why speedtest.net's own result page reports
+  // "Connections: Multi". Full writeup: V8.7 reference doc, Section 1.
+  streams = streams || 6;
+  const url = 'https://speed.cloudflare.com/__down?bytes=' + chunkBytes;
+  let totalBytes = 0;
+  const samples = [];
+  const tStart = performance.now();
+  const deadline = tStart + targetDurationSec * 1000;
+
+  const liveRate = _makeLiveRate(1.0);     // V10.7: 1 s sliding window, smoothed -- not the noise between two 200 ms ticks
+  const sampleTimer = setInterval(() => {
+    const t = (performance.now() - tStart) / 1000;
+    samples.push([t, totalBytes]);
+    const r = liveRate(samples);
+    if (onSample && r !== null) onSample(r, t);
+  }, 200);
+
+  // V10.3: this used to be `const blob = await resp.blob(); totalBytes +=
+  // blob.size;` -- totalBytes only moved once per whole chunkBytes-sized
+  // fetch (6MB for download), the instant it finished, and sat perfectly
+  // flat the rest of the time. With `streams` (6) requests in flight at
+  // once, chunk completions land in clusters rather than evenly, so the
+  // 200ms sampler above alternated between "nothing finished this tick"
+  // (rate = 0) and "several finished at once" (rate = several chunks /
+  // 200ms, often clipped at GAUGE_MAX) -- the needle snapping to zero then
+  // spiking, repeatedly, which is what "the meter is just going and
+  // coming" was describing. Reading the response body incrementally via
+  // its own reader, and counting each piece as it actually arrives over
+  // the wire, gives totalBytes a smooth, continuous curve for the sampler
+  // to differentiate -- the same fix speedtest_check.py's Cloudflare
+  // fallback already applies server-side via chunked r.read() calls.
+  // V10.7: every request is abortable and aborted AT the deadline -- one stalled stream used to be able to
+  // hold the whole test open, with the dead time dividing the figure down (the same class of bug fixed
+  // server-side in speedtest_check.py).
+  const ctrl = new AbortController();
+  const killer = setTimeout(() => { try { ctrl.abort(); } catch (_) {} }, targetDurationSec * 1000);
+  // V10.9: HTTP 429/503 from the target = rate limited. Back off, retire half the streams, never hammer.
+  let limitedHits = 0, allowed = streams, lastCut = 0;
+  const worker = async (idx) => {
+    while (performance.now() < deadline) {
+      try {
+        const resp = await fetch(url, { cache: 'no-store', signal: ctrl.signal });
+        if (resp.status === 429 || resp.status === 503) {
+          limitedHits++;
+          const now = performance.now();
+          if (now - lastCut >= 1000) { allowed = Math.max(1, Math.floor(allowed / 2)); lastCut = now; }
+          try { await resp.body.cancel(); } catch (_) {}
+          if (idx >= allowed) return;
+          const ra = parseFloat(resp.headers.get('Retry-After'));
+          await _sleep(Math.min(3000, (ra > 0 ? ra * 1000 : 400 * Math.pow(2, Math.min(limitedHits, 4)))));
+          continue;
+        }
+        if (resp.ok === false) return;
+        const reader = resp.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          if (value) totalBytes += value.byteLength;
+          if (performance.now() >= deadline) {
+            try { await reader.cancel(); } catch (_) { /* fine either way */ }
+            break;
+          }
+        }
+      } catch (e) { return; }
+    }
+  };
+
+  await Promise.all(Array.from({ length: streams }, (_, i) => worker(i)));
+  _pcRateLimited = limitedHits;
+  clearTimeout(killer);
+  clearInterval(sampleTimer);
+  samples.push([(performance.now() - tStart) / 1000, totalBytes]);
+
+  // Steady-state: discard the first ~1s (TCP slow-start) from the rate
+  // calc only -- targetDurationSec itself is unchanged from V8.6.
+  const warmup = Math.min(1, targetDurationSec * 0.3);
+  const usable = samples.filter(([t]) => t >= warmup);
+  const pts = usable.length >= 2 ? usable : samples;
+  if (pts.length < 2) return null;
+  const [t0, b0] = pts[0];
+  const [t1, b1] = pts[pts.length - 1];
+  const dt = t1 - t0;
+  const result = (dt > 0 && (b1 - b0) > 0) ? ((b1 - b0) * 8) / (dt * 1_000_000) : null;
+  if (onSample && result !== null) onSample(result, t1);   // V10.7: let the needle settle on the number that gets reported
+  return result;
+}
+
+function _randomPayload(bytes) {
+  const arr = new Uint8Array(bytes);
+  const MAX = 65536; // crypto.getRandomValues per-call limit
+  for (let off = 0; off < bytes; off += MAX) {
+    crypto.getRandomValues(arr.subarray(off, Math.min(off + MAX, bytes)));
+  }
+  return arr;
+}
+
+// V10.7: live rate for the needle = average over a short sliding window (1 s), lightly smoothed.
+// The old needle followed the change between two 200 ms samples, which is mostly noise.
+function _makeLiveRate(windowSec) {
+  let ema = null;
+  return function(samples) {            // samples: [[t_seconds, total_bytes], ...] ascending
+    const n = samples.length;
+    if (n < 2) return null;
+    const t1 = samples[n - 1][0], b1 = samples[n - 1][1];
+    let i = n - 2;
+    while (i > 0 && samples[i][0] > t1 - windowSec) i--;
+    const dt = t1 - samples[i][0];
+    if (dt < 0.3 || t1 < 0.5) return null;
+    const inst = (b1 - samples[i][1]) * 8 / (dt * 1000000);
+    ema = (ema === null) ? inst : ema + 0.5 * (inst - ema);
+    return ema;
+  };
+}
+
+// V10.7: upload rate from COMPLETION events -- identical method to the server-side test
+// (speedtest_check._completion_mbps). Per stream: bytes of the requests that completed between
+// its first and last completion in the window, over the time between those two completions;
+// then the streams are summed. Counting "bytes handed to the network" instead over-reads: the
+// browser and OS swallow megabytes into send buffers instantly, which on a slow uplink can add
+// tens of percent. null if too few streams produced two completions.
+function _completionMbps(eventsByStream, warm, tEnd) {
+  let total = 0, used = 0;
+  for (let s = 0; s < eventsByStream.length; s++) {
+    const inwin = eventsByStream[s].filter(function(e) { return e[0] >= warm && e[0] <= tEnd; });
+    if (inwin.length >= 2 && inwin[inwin.length - 1][0] - inwin[0][0] > 0.05) {
+      const span = inwin[inwin.length - 1][0] - inwin[0][0];
+      let bytes = 0;
+      for (let i = 1; i < inwin.length; i++) bytes += inwin[i][1];
+      total += bytes * 8 / (span * 1000000);
+      used++;
+    }
+  }
+  if (used === 0 || used < Math.max(1, Math.floor(eventsByStream.length / 2))) return null;
+  return total;
+}
+
+// V10.3: fetch() has no upload-progress signal at all, so uploads use XMLHttpRequest, whose
+// upload.onprogress fires as the browser hands bytes to the network -- used here ONLY for the
+// live needle; the reported figure comes from completions (see _completionMbps).
+// V10.7: aborts itself at the deadline, rejects on HTTP errors.
+function _cfUploadOnce(url, payload, onBytes, deadlineMs) {
+  return new Promise(function(resolve, reject) {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url, true);
+    xhr.setRequestHeader('Content-Type', 'application/octet-stream');
+    let sent = 0;
+    const killer = setTimeout(function() { try { xhr.abort(); } catch (_) {} },
+                              Math.max(0, deadlineMs - performance.now()));
+    xhr.upload.onprogress = function(e) {
+      if (e.loaded > sent) { onBytes(e.loaded - sent); sent = e.loaded; }
+    };
+    xhr.onload = function() {
+      clearTimeout(killer);
+      if (xhr.status >= 400) { reject(new Error('HTTP ' + xhr.status)); return; }
+      if (payload.byteLength > sent) onBytes(payload.byteLength - sent);
+      resolve();
+    };
+    xhr.onerror = function() { clearTimeout(killer); reject(new Error('upload failed')); };
+    xhr.onabort = function() { clearTimeout(killer); reject(new Error('stopped at the deadline')); };
+    xhr.send(payload);
+  });
+}
+
+let _pcUploadBase = null;   // one random buffer, reused as zero-copy views for every request
+let _pcRateLimited = 0;   // V10.9: 429/503 answers seen by the browser download phase
+
+async function _cfUploadMbps(targetDurationSec, startChunk, onSample, streams) {
+  // V8.7: `streams` parallel uploads, same reasoning as the download test.
+  // V10.7: request size adapts (64 KB .. 16 MB) so each request lasts about half a second.
+  streams = streams || 6;
+  const url = 'https://speed.cloudflare.com/__up';
+  if (!_pcUploadBase) _pcUploadBase = _randomPayload(16000000);
+  let sentBytes = 0;
+  const samples = [];
+  const events = [];
+  for (let i = 0; i < streams; i++) events.push([]);
+  const tStart = performance.now();
+  const deadline = tStart + targetDurationSec * 1000;
+  const liveRate = _makeLiveRate(1.5);
+
+  const sampleTimer = setInterval(function() {
+    const t = (performance.now() - tStart) / 1000;
+    samples.push([t, sentBytes]);
+    const r = liveRate(samples);
+    if (onSample && r !== null) onSample(r, t);
+  }, 200);
+
+  const worker = async function(idx) {
+    let chunk = Math.max(65536, startChunk);
+    while (performance.now() < deadline) {
+      const tReq = performance.now();
+      try {
+        await _cfUploadOnce(url, _pcUploadBase.subarray(0, chunk), function(n) { sentBytes += n; }, deadline);
+      } catch (e) { return; }
+      const now = performance.now();
+      if (now > deadline) return;                       // finished after the deadline: not counted
+      events[idx].push([(now - tStart) / 1000, chunk]);
+      const took = now - tReq;
+      if (took < 300) chunk = Math.min(chunk * 2, 16000000);
+      else if (took > 900) chunk = Math.max(Math.floor(chunk / 2), 65536);
+    }
+  };
+  const workers = [];
+  for (let i = 0; i < streams; i++) workers.push(worker(i));
+  await Promise.all(workers);
+  clearInterval(sampleTimer);
+  const tEnd = Math.min(targetDurationSec, (performance.now() - tStart) / 1000);
+  samples.push([tEnd, sentBytes]);
+
+  const warm = Math.min(2, targetDurationSec * 0.25);
+  let result = _completionMbps(events, warm, tEnd);
+  if (result === null) {                                // link too slow for completion events: coarse fallback
+    const pts = samples.filter(function(s) { return s[0] >= warm; });
+    if (pts.length >= 2) {
+      const dt = pts[pts.length - 1][0] - pts[0][0];
+      const db = pts[pts.length - 1][1] - pts[0][1];
+      result = (dt > 0 && db > 0) ? (db * 8) / (dt * 1000000) : null;
+    }
+  }
+  if (onSample && result !== null) onSample(result, tEnd);   // let the needle settle on the reported number
+  return result;
+}
+
+// V10.7: MEDIAN of warm samples (the old mean let one slow sample drag the figure up), and the
+// Cloudflare data centre when the browser is allowed to read it (cf-meta-* response headers --
+// only visible cross-origin if Cloudflare exposes them, so this is best effort and never fatal).
+async function _cfLatencyMs(samples) {
+  let colo = '', city = '';
+  const probe = async function() {
+    const t0 = performance.now();
+    const r = await fetch('https://speed.cloudflare.com/__down?bytes=0', {cache: 'no-store'});
+    await r.arrayBuffer();
+    const dt = performance.now() - t0;
+    try {
+      colo = colo || r.headers.get('cf-meta-colo') || '';
+      city = city || r.headers.get('cf-meta-city') || '';
+    } catch (_) { /* header not exposed to this origin */ }
+    return dt;
+  };
+  try { await probe(); } catch (e) { /* first request pays DNS+TCP+TLS; it is not the RTT */ }
+  const times = [];
+  for (let i = 0; i < samples; i++) {
+    try { times.push(await probe()); } catch (e) { /* skip a failed sample */ }
+  }
+  if (!times.length) return {latency: null, jitter: 0, colo: colo, city: city};
+  const sorted = times.slice().sort(function(a, b) { return a - b; });
+  const mid = Math.floor(sorted.length / 2);
+  const median = sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  let jitter = 0;
+  if (times.length > 1) {
+    let s = 0;
+    for (let i = 1; i < times.length; i++) s += Math.abs(times[i] - times[i - 1]);
+    jitter = s / (times.length - 1);
+  }
+  return {latency: median, jitter: jitter, colo: colo, city: city};
+}
+
+async function _clientPublicIp() {
+  try {
+    const r = await fetch('https://api.ipify.org?format=json');
+    const d = await r.json();
+    return d.ip || '';
+  } catch (e) { return ''; }
+}
+
+let PC_DL_SEC = 8, PC_UL_SEC = 5;     // seconds per direction (kept as variables so tests can shorten them)
+
+async function runClientTest() {
+  _pcRateLimited = 0;
+  const btn  = document.getElementById('run-client-btn');
+  const stat = document.getElementById('run-status');
+  document.getElementById('run-btn').disabled = true;
+  btn.disabled = true;
+  btn.textContent = 'Testing...';
+  stat.style.color = 'var(--text-secondary)';
+  _setNote('');
+  _resetSubRow();
+  const badge = document.getElementById('showing-badge');
+  if (badge) { badge.textContent = 'Your PC'; badge.style.color = 'var(--accent)'; }
+  initGaugeDial();
+  setGaugePhase('ping');
+  setGaugeWorking('Latency');
+
+  // V10.1: this used to be `dlStart`, a variable never declared anywhere in
+  // this function -- every run threw "dlStart is not defined" right here,
+  // AFTER download+upload had already finished (setGauge WAS updating live
+  // during both phases below), which is why the error surfaced only at the
+  // very end and why the gauge then snapped back to 0: the throw skipped
+  // straight to the catch block, which calls setGauge(0).
+  // V10.6: this is a DIFFERENT situation from the server-side fix in the
+  // same release. Browsers pool/reuse HTTP keep-alive connections (and
+  // Cloudflare serves speed.cloudflare.com over HTTP/2, which multiplexes
+  // many logical requests over one real connection) largely automatically --
+  // unlike Python's urllib.request, which opened a genuinely new TCP+TLS
+  // connection per request with no reuse at all. That's why this file's
+  // `streams`-parallel-fetch loop was very unlikely to be anywhere near as
+  // wrong as the server-side bug was. Chunk sizes bumped up (6MB->25MB
+  // download) purely to cut the number of separate request/response cycles.
+  // V10.7: what a PC test CAN'T do from a browser: it measures the route from
+  // this PC to Cloudflare, over what is typically ONE HTTP/2 connection. It cannot
+  // reach a server inside your ISP the way speedtest.net does, so on some ISPs it
+  // reads lower than speedtest.net. The result now says what it measured against.
+  const testStart = performance.now();
+
+  try {
+    stat.textContent = 'Measuring latency from your PC…';
+    const lat = await _cfLatencyMs(6);
+    document.getElementById('gauge-ping').textContent = _fmt(lat.latency, 0);
+
+    setGaugePhase('download');
+    setGauge(0, false);
+    stat.textContent = 'Measuring YOUR download speed… 0 s / ~' + PC_DL_SEC + ' s';
+    const downloadMbps = await _cfDownloadMbps(PC_DL_SEC, 25000000, function(sample, elapsed) {
+      stat.textContent = 'Measuring YOUR download speed… ' + elapsed.toFixed(0) + ' s / ~' + PC_DL_SEC + ' s';
+      setGauge(sample, true);   // live-updating needle + digital value, real samples throughout
+    });
+    setGauge(downloadMbps, false);
+    document.getElementById('gauge-dl').textContent = _fmt(downloadMbps, 1);
+
+    setGaugePhase('upload');
+    setGauge(0, false);
+    stat.textContent = 'Measuring YOUR upload speed… 0 s / ~' + PC_UL_SEC + ' s';
+    const uploadMbps = await _cfUploadMbps(PC_UL_SEC, 262144, function(sample, elapsed) {
+      stat.textContent = 'Measuring YOUR upload speed… ' + elapsed.toFixed(0) + ' s / ~' + PC_UL_SEC + ' s';
+      setGauge(sample, true);
+    });
+    setGauge(uploadMbps, false);
+    document.getElementById('gauge-up').textContent = _fmt(uploadMbps, 1);
+
+    stat.textContent = 'Looking up your public IP…';
+    const publicIp = await _clientPublicIp();
+
+    if (downloadMbps === null && uploadMbps === null) {
+      throw new Error('Could not reach the speed test server from your browser. This can happen if a ' +
+        'firewall, proxy, or ad-blocker is blocking speed.cloudflare.com — check your network settings and try again.');
+    }
+
+    const where = 'Cloudflare' + (lat.colo ? ' (' + lat.colo + (lat.city ? ' · ' + lat.city : '') + ')' : ' (browser)');
+    const elapsedSec = (performance.now() - testStart) / 1000;
+    const result = {
+      reachable: true,
+      // V10.7: a direction that could not be measured is sent as null, not as a fake 0
+      download_mbps: downloadMbps === null ? null : Number(downloadMbps.toFixed(2)),
+      upload_mbps:   uploadMbps   === null ? null : Number(uploadMbps.toFixed(2)),
+      latency_ms:    lat.latency  === null ? null : Number(lat.latency.toFixed(1)),
+      jitter_ms:     Number(lat.jitter.toFixed(1)),
+      public_ip:     publicIp,
+      isp:           '',  // filled in by the server from the public IP (V10.7)
+      server:        where,
+      elapsed_sec:   Number(elapsedSec.toFixed(1)),
+    };
+
+    stat.textContent = 'Saving result…';
+    const saveR = await fetch('/api/speedtest/submit-client-result', {
+      method: 'POST',
+      headers: {'X-Session-Token': getSession(), 'Content-Type': 'application/json'},
+      body: JSON.stringify(result)
+    });
+    const saved = await saveR.json();
+    if (!saveR.ok) throw new Error(saved.error || 'Failed to save result');
+
+    applyLatestToGauge(saved);
+    stat.textContent = 'Complete — this measured YOUR connection (' + (saved.hostname || saved.local_ip || 'this PC') + ').';
+    stat.style.color = 'var(--status-ok)';
+    const partial = (downloadMbps === null ? 'Download' : (uploadMbps === null ? 'Upload' : ''));
+    _setNote('Measured in this browser to ' + where + ' — the route from this PC to Cloudflare, so it can read lower ' +
+             'than speedtest.net, which tests against a server inside your ISP.' +
+             (partial ? ' ' + partial + ' could not be measured.' : '') +
+             (_pcRateLimited > 0 ? ' Cloudflare rate-limited this network (' + _pcRateLimited + ' x HTTP 429/503); the test slowed down and used fewer connections, so the download figure can read low. Wait 5-10 minutes between tests.' : ''),
+             !!partial || _pcRateLimited > 0);
+    loadHistory();
+  } catch (e) {
+    stat.textContent = 'Failed: ' + e.message;
+    stat.style.color = 'var(--status-critical)';
+    setGaugePhase('idle');
+    setGauge(0);
+  }
+  document.getElementById('run-btn').disabled = false;
+  btn.disabled = false;
+  btn.textContent = '💻 Test Your PC Speed';
+}
+
+function exportCSV() {
+  if (!historyRows.length) { alert('No data to export.'); return; }
+  // V10.7: Source says WAN / PC like the page; Target + Method are appended at the END so existing
+  // column positions are unchanged; a direction that was not measured is a blank cell, not 0.
+  const hdr = ['Timestamp','Source','Download_Mbps','Upload_Mbps','Latency_ms','Jitter_ms','Local_IP','Hostname','Public_IP','ISP','Duration_s','Target','Method'];
+  const cell = function(v) { return (v === null || v === undefined) ? '' : String(v); };
+  const rows = historyRows.map(function(r) {
+    return [new Date(r.ts*1000).toISOString(), r.test_source==='client'?'PC':'WAN',
+            cell(r.download_mbps), cell(r.upload_mbps), cell(r.latency_ms), cell(r.jitter_ms),
+            r.local_ip||'', r.hostname||'', r.public_ip||'', r.isp||'', cell(r.elapsed_sec),
+            r.server||'', r.method_used||''];
+  });
+  const csv = [hdr].concat(rows).map(function(r) {
+    return r.map(function(c) { return '"' + String(c).replace(/"/g, '""') + '"'; }).join(',');
+  }).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv'}));
+  a.download = 'net-monit-speed-tests.csv';
+  a.click();
+}
+
+async function purgeHistory() {
+  if (!confirm('Delete all speed test history? This cannot be undone.')) return;
+  try {
+    const r = await fetch('/api/speedtest/history', {
+      method:'DELETE', headers:{'X-Session-Token':getSession()}
+    });
+    const d = await r.json();
+    if (d.ok) {
+      showToast('Speed test history cleared', 'success');
+      historyRows = [];
+      renderHistory([]);
+    } else {
+      showToast(d.error || 'Admin access required to purge logs', 'error');
+    }
+  } catch(e) { showToast('Failed: ' + e.message, 'error'); }
+}
+
+document.addEventListener('DOMContentLoaded', loadHistory);
+window.addEventListener('resize', function(){ renderChart(historyRows.slice().reverse()); });
+</script>
+{% endblock %}

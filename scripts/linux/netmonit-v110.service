@@ -1,0 +1,25 @@
+[Unit]
+Description=Net-monit V11.0 Network Monitor
+Documentation=https://Abdullah-InfoXtek.com
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=netmonit
+Group=netmonit
+WorkingDirectory=/opt/netmonit-v110
+ExecStart=/opt/netmonit-v110/venv/bin/python /opt/netmonit-v110/app.py
+Restart=on-failure
+RestartSec=5s
+StartLimitIntervalSec=120
+StartLimitBurst=5
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=netmonit-v110
+Environment=PYTHONUNBUFFERED=1
+Environment=NETMON_PORT=50110
+Environment=NETMON_SVC_NAME=netmonit-v110
+
+[Install]
+WantedBy=multi-user.target

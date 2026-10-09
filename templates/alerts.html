@@ -1,0 +1,208 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Alert Event Logs</h1>
+    <p class="page-sub">Active, acknowledged, and resolved alerts across all monitored devices and sites.</p>
+  </div>
+</div>
+
+<div class="al-filter-tabs" id="al-filter-tabs">
+  <button class="al-tab active" data-f="open" onclick="setAlertFilter('open')">Open <span class="al-count" id="al-cnt-open">0</span></button>
+  <button class="al-tab" data-f="active" onclick="setAlertFilter('active')">Active <span class="al-count" id="al-cnt-active">0</span></button>
+  <button class="al-tab" data-f="acknowledged" onclick="setAlertFilter('acknowledged')">Acknowledged <span class="al-count" id="al-cnt-acknowledged">0</span></button>
+  <button class="al-tab" data-f="resolved" onclick="setAlertFilter('resolved')">Resolved <span class="al-count" id="al-cnt-resolved">0</span></button>
+</div>
+
+<div class="al-search-row">
+  <input id="al-search" type="text" placeholder="Search by alert message or host…" oninput="renderAlerts()">
+  <select id="al-severity" onchange="renderAlerts()">
+    <option value="">All severities</option>
+    <option value="critical">Critical</option>
+    <option value="warning">Warning</option>
+  </select>
+</div>
+
+<div id="alerts-list" style="display:flex;flex-direction:column;gap:12px;">
+  <div style="color:var(--text-muted);text-align:center;padding:32px;">Loading...</div>
+</div>
+
+<style>
+.al-search-row { display:flex; gap:8px; margin-bottom:14px; flex-wrap:wrap; }
+.al-search-row input {
+  flex:1; min-width:220px; background:var(--bg-panel); border:1px solid var(--border);
+  border-radius:var(--radius-sm); padding:8px 12px; color:var(--text-primary); font-size:13px;
+}
+.al-search-row select {
+  background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:8px 12px; color:var(--text-primary); font-size:13px;
+}
+.al-search-row input:focus, .al-search-row select:focus { outline:none; border-color:var(--accent); }
+
+/* V10.1: a duplicate STYLE-opening tag used to sit here instead of this
+   comment -- two of them, sharing one closing tag near the bottom of this
+   block, which is invalid HTML and corrupted the parser enough that the
+   .al-filter-tabs rule below silently failed to apply, leaving the four
+   status buttons to fall back to block-level stacking instead of the
+   intended row. One style block, like every other page in this app.
+   (V10.2 note: the first attempt at this comment spelled the tag out
+   literally, with angle brackets, INCLUDING the closing form -- which
+   the HTML parser treats as the real end of this element regardless of
+   it being inside what looks like a CSS comment, since raw-text elements
+   like STYLE are scanned for that literal sequence before any CSS-level
+   parsing happens at all. That shipped the exact same class of bug this
+   comment describes, just self-inflicted. Nothing in this file's STYLE
+   block may ever spell out that closing sequence literally again, comment
+   or otherwise.) */
+.al-filter-tabs { display:flex; gap:4px; margin-bottom:16px; border-bottom:1px solid var(--border); }
+.al-tab {
+  background:none; border:none; border-bottom:2px solid transparent;
+  color:var(--text-secondary); font-size:13px; font-weight:600;
+  padding:8px 16px; cursor:pointer; display:flex; align-items:center; gap:6px;
+}
+.al-tab:hover  { color:var(--text-primary); }
+.al-tab.active { color:var(--accent); border-bottom-color:var(--accent); }
+.al-count { background:var(--bg-hover); color:var(--text-muted); border-radius:9px; padding:0 7px; font-size:10.6px; font-weight:700; }
+.al-tab.active .al-count { background:var(--accent); color:#fff; }
+
+.al-card {
+  background:var(--bg-panel); border:1px solid var(--border); border-radius:var(--radius-sm);
+  padding:14px 18px; border-left:3px solid var(--status-warning);
+}
+.al-card.severity-critical { border-left-color:var(--status-critical); }
+.al-card.severity-warning  { border-left-color:var(--status-warning); }
+.al-card.status-resolved   { opacity:.65; border-left-color:var(--status-ok); }
+.al-card-top { display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:6px; }
+.al-badge { font-size:10.6px; font-weight:800; padding:2px 9px; border-radius:10px; letter-spacing:.3px; }
+.al-badge-critical     { background:var(--status-critical-bg); color:var(--status-critical); }
+.al-badge-warning      { background:var(--status-warning-bg); color:var(--status-warning); }
+.al-badge-active       { background:var(--status-critical-bg); color:var(--status-critical); }
+.al-badge-acknowledged { background:var(--status-warning-bg); color:var(--status-warning); }
+.al-badge-resolved     { background:var(--status-ok-bg); color:var(--status-ok); }
+.al-title { font-weight:700; font-size:14px; }
+.al-source { font-size:11px; color:var(--text-muted); margin-left:auto; }
+.al-msg { font-size:13px; color:var(--text-secondary); margin:4px 0 6px; }
+.al-meta { font-size:11px; color:var(--text-muted); }
+.al-actions { display:flex; gap:8px; margin-top:10px; }
+.al-btn { font-size:12px; padding:5px 14px; border-radius:6px; border:none; cursor:pointer; font-weight:600; }
+.al-btn-ack     { background:var(--accent); color:#fff; }
+.al-btn-resolve { background:var(--status-ok); color:#fff; }
+.al-btn:disabled{ opacity:.5; cursor:default; }
+</style>
+
+<script>
+let alertFilter = 'open';
+let allAlertsCache = [];
+
+async function loadAlerts() {
+  try {
+    const r = await fetch('/api/alerts/active?limit=300', {headers:{'X-Session-Token':getSession()}});
+    allAlertsCache = await r.json();
+    renderAlertCounts();
+    renderAlerts();
+  } catch(e) {
+    document.getElementById('alerts-list').innerHTML =
+      '<div style="color:var(--status-critical);text-align:center;padding:24px;">' + e.message + '</div>';
+  }
+}
+
+function renderAlertCounts() {
+  const open = allAlertsCache.filter(a => a.status==='active' || a.status==='acknowledged').length;
+  const active = allAlertsCache.filter(a => a.status==='active').length;
+  const ack = allAlertsCache.filter(a => a.status==='acknowledged').length;
+  const res = allAlertsCache.filter(a => a.status==='resolved').length;
+  document.getElementById('al-cnt-open').textContent = open;
+  document.getElementById('al-cnt-active').textContent = active;
+  document.getElementById('al-cnt-acknowledged').textContent = ack;
+  document.getElementById('al-cnt-resolved').textContent = res;
+
+  const badge = document.getElementById('sidebar-alert-badge');
+  if (badge) {
+    if (open > 0) { badge.style.display=''; badge.textContent = open; }
+    else { badge.style.display='none'; }
+  }
+}
+
+function setAlertFilter(f) {
+  alertFilter = f;
+  document.querySelectorAll('.al-tab').forEach(b => b.classList.toggle('active', b.dataset.f === f));
+  renderAlerts();
+}
+
+function renderAlerts() {
+  let rows = allAlertsCache;
+  if (alertFilter === 'open') rows = rows.filter(a => a.status==='active' || a.status==='acknowledged');
+  else rows = rows.filter(a => a.status === alertFilter);
+
+  const sevFilter = document.getElementById('al-severity').value;
+  if (sevFilter) rows = rows.filter(a => a.severity === sevFilter);
+
+  const q = document.getElementById('al-search').value.trim().toLowerCase();
+  if (q) {
+    rows = rows.filter(a =>
+      (a.message      || '').toLowerCase().includes(q) ||
+      (a.device_name  || '').toLowerCase().includes(q) ||
+      (a.device_host  || '').toLowerCase().includes(q) ||
+      (a.metric       || '').toLowerCase().includes(q)
+    );
+  }
+
+  const el = document.getElementById('alerts-list');
+  if (!rows.length) {
+    const hasActiveSearch = q || sevFilter;
+    el.innerHTML = '<div style="color:var(--text-muted);text-align:center;padding:40px;">' +
+      (hasActiveSearch
+        ? 'No alerts match your search/filter.'
+        : 'No ' + alertFilter + ' alerts.') +
+      '</div>';
+    return;
+  }
+
+  el.innerHTML = rows.map(function(a) {
+    const sevBadge = '<span class="al-badge al-badge-' + a.severity + '">' + a.severity.toUpperCase() + '</span>';
+    const statusBadge = '<span class="al-badge al-badge-' + a.status + '">' + a.status.toUpperCase() + '</span>';
+    const triggered = a.triggered_ts ? new Date(a.triggered_ts*1000).toLocaleString() : '';
+    const canAct = a.status !== 'resolved';
+    return '<div class="al-card severity-' + a.severity + ' status-' + a.status + '">' +
+      '<div class="al-card-top">' + sevBadge + statusBadge +
+        '<span class="al-title">' + escapeHtmlAl(a.message || a.device_name) + '</span>' +
+        '<span class="al-source">Source: Device (' + escapeHtmlAl(a.device_name) + ')</span>' +
+      '</div>' +
+      '<div class="al-meta">Triggered: ' + triggered +
+        (a.acknowledged_by ? ' &middot; Acknowledged by ' + escapeHtmlAl(a.acknowledged_by) : '') +
+        (a.resolved_by ? ' &middot; Resolved by ' + escapeHtmlAl(a.resolved_by) : '') + '</div>' +
+      (canAct ?
+        '<div class="al-actions">' +
+          '<button class="al-btn al-btn-ack" ' + (a.status==='acknowledged'?'disabled':'') +
+            ' onclick="ackAlert(' + a.id + ')">' + (a.status==='acknowledged'?'Acknowledged':'Acknowledge') + '</button>' +
+          '<button class="al-btn al-btn-resolve" onclick="resolveAlert(' + a.id + ')">Resolve Event</button>' +
+        '</div>' : '') +
+    '</div>';
+  }).join('');
+}
+
+function escapeHtmlAl(s) { return (s||'').toString().replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+async function ackAlert(id) {
+  const r = await fetch('/api/alerts/' + id + '/acknowledge', {method:'POST', headers:{'X-Session-Token':getSession()}});
+  const d = await r.json();
+  if (d.ok) {
+    if (typeof showToast === 'function') showToast('Alert acknowledged — no further escalation today', 'success');
+    loadAlerts();
+  } else if (typeof showToast === 'function') { showToast(d.error || 'Failed', 'error'); }
+}
+
+async function resolveAlert(id) {
+  if (!confirm('Mark this event as resolved? A recovery notification will be sent to the configured recipients.')) return;
+  const r = await fetch('/api/alerts/' + id + '/resolve', {method:'POST', headers:{'X-Session-Token':getSession()}});
+  const d = await r.json();
+  if (d.ok) {
+    if (typeof showToast === 'function') showToast('Event resolved', 'success');
+    loadAlerts();
+  } else if (typeof showToast === 'function') { showToast(d.error || 'Failed', 'error'); }
+}
+
+document.addEventListener('DOMContentLoaded', loadAlerts);
+setInterval(loadAlerts, 15000);
+</script>
+{% endblock %}

@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Net-monit V11.0{% if title %} — {{ title }}{% endif %}</title>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" type="image/svg+xml" href="/static/img/favicon.svg">
+  <!-- V10.1: admin-set appearance defaults, injected before theme.js runs so
+       its early-init can fall back to these (for anonymous visitors and
+       first-time users) instead of a hardcoded value. tojson handles the
+       escaping, so this is safe even though the accent/bg colours are
+       admin-supplied strings. bg_image is deliberately NOT included here --
+       it can be up to 4MB and inlining that into every page's raw HTML,
+       including pages nobody ever customised, isn't worth it just to avoid
+       one brief post-load flash; see theme.js's syncDefaultBgImage(). -->
+  <script>
+    window.__NETMON_DEFAULTS__ = {
+      theme: {{ appearance.default_theme | tojson }},
+      accent: {{ appearance.default_accent_color | tojson }},
+      bg_color: {{ appearance.default_bg_color | tojson }}
+    };
+  </script>
+  <!-- theme.js loads in <head> and applies theme synchronously before first paint -->
+  <script src="/static/js/theme.js"></script>
+</head>
+<body>
+  <!-- Toast container -->
+  <div id="toast-container" aria-live="polite"></div>
+
+  <!-- Login overlay -->
+  <div id="login-overlay" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:380px;">
+      <div class="modal-header">
+        <span class="modal-title">Sign in to Net-monit</span>
+        <button class="icon-btn" id="login-close" title="Close">✕</button>
+      </div>
+      <div style="padding:20px;">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:16px;">
+          Enter your email and access token. Contact your admin if you need credentials.
+        </p>
+        <div class="field"><label>Email</label>
+          <input id="li-email" type="email" placeholder="you@company.com" autocomplete="username"></div>
+        <div class="field" style="margin-top:10px;"><label>Access Token</label>
+          <input id="li-token" type="password" placeholder="Your token" autocomplete="current-password"></div>
+        <div id="li-error" style="color:var(--status-critical);font-size:13px;margin-top:8px;"></div>
+        <button id="li-submit" class="btn primary" style="width:100%;margin-top:14px;">Sign in</button>
+        <p style="text-align:center;margin-top:10px;">
+          <a href="#" id="li-forgot-link" style="font-size:12.5px;color:var(--text-muted);">Forgot your token?</a>
+        </p>
+        <p style="font-size:11px;color:var(--text-muted);margin-top:6px;text-align:center;">
+          Net-monit V11.0 · © 2024–2026 Abdullah
+        </p>
+      </div>
+    </div>
+  </div>
+
+  <!-- V10.0: Forgot token / reset flow, OTP-based. Four internal views
+       toggled via JS (request email -> enter code -> choose new token ->
+       done) rather than the old link-click flow, which auto-generated
+       the replacement token and never asked the user for a code at all. -->
+  <div id="forgot-token-overlay" class="modal-overlay hidden">
+    <div class="modal-box" style="max-width:400px;">
+      <div class="modal-header">
+        <span class="modal-title" id="ft-title">Reset your token</span>
+        <button class="icon-btn" id="ft-close" title="Close">✕</button>
+      </div>
+      <div style="padding:20px;">
+
+        <div id="ft-request-view">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+            Enter the email address on your Net-monit account. If it's registered, we'll email you a
+            6-digit verification code — it expires in 10 minutes.
+          </p>
+          <div class="field"><label>Email</label>
+            <input id="ft-email" type="email" placeholder="you@company.com" autocomplete="username"></div>
+          <button id="ft-request-submit" class="btn primary" style="width:100%;margin-top:14px;">Send code</button>
+          <div id="ft-request-error" style="color:var(--status-critical);font-size:13px;margin-top:8px;"></div>
+        </div>
+
+        <div id="ft-otp-view" class="hidden">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+            If that email is registered, a 6-digit code is on its way — check your inbox (and spam
+            folder). Enter it below; it expires in 10 minutes.
+          </p>
+          <div class="field"><label>Verification code</label>
+            <input id="ft-otp" type="text" inputmode="numeric" maxlength="6" placeholder="123456"
+              style="letter-spacing:6px;font-size:20px;text-align:center;font-family:var(--font-mono);"></div>
+          <button id="ft-otp-submit" class="btn primary" style="width:100%;margin-top:14px;">Verify code</button>
+          <div id="ft-otp-error" style="color:var(--status-critical);font-size:13px;margin-top:8px;"></div>
+          <button id="ft-otp-resend" class="btn secondary" style="width:100%;margin-top:8px;" type="button">Send a new code</button>
+        </div>
+
+        <div id="ft-newtoken-view" class="hidden">
+          <p style="font-size:13px;color:var(--text-muted);margin-bottom:14px;">
+            Code verified. Choose your new access token — type your own, or generate a random one.
+          </p>
+          <div class="field"><label>New access token <span style="color:var(--text-muted);font-weight:400;">(minimum 8 characters)</span></label>
+            <div style="display:flex;gap:8px;">
+              <input id="ft-new-token-input" type="text" placeholder="Enter or generate a token" style="flex:1;">
+              <button id="ft-generate-token" class="btn secondary small" type="button">Generate</button>
+            </div>
+          </div>
+          <button id="ft-newtoken-submit" class="btn primary" style="width:100%;margin-top:14px;">Set my new token</button>
+          <div id="ft-newtoken-error" style="color:var(--status-critical);font-size:13px;margin-top:8px;"></div>
+        </div>
+
+        <div id="ft-result-view" class="hidden">
+          <p style="font-size:13px;color:var(--text-secondary);margin-bottom:10px;">
+            Your token has been updated. <strong>Save it now if you didn't choose one you already know:</strong>
+          </p>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <code id="ft-new-token" style="flex:1;background:var(--bg-hover);padding:8px 10px;
+                  border-radius:6px;font-size:14px;word-break:break-all;"></code>
+            <button id="ft-copy-token" class="btn secondary small" type="button">Copy</button>
+          </div>
+          <button id="ft-result-login" class="btn primary" style="width:100%;margin-top:16px;">Continue to sign in</button>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
+  <!-- Top bar -->
+  <header class="topbar">
+    <div class="topbar-left">
+      <a href="/" class="brand" id="brand-link">
+        <span id="brand-default">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>
+          </svg>
+          NET-MONIT
+        </span>
+      </a>
+      <nav class="topbar-nav">
+        <a href="/admin"    class="nav-link{% if active=='admin' %} active{% endif %}">Admin Panel</a>
+        <a href="/activation" class="nav-link{% if active=='activation' %} active{% endif %}" id="nav-license" style="display:none;">License</a>
+        <a href="/about" class="nav-link{% if active=='about' %} active{% endif %}">About Net-monit V11.0</a>
+      </nav>
+    </div>
+    <div class="topbar-right">
+      <span id="brand-org" class="hidden" style="display:none;align-items:center;gap:8px;padding-right:14px;margin-right:4px;border-right:1px solid var(--border);">
+        <img id="brand-org-logo" src="" alt="" style="height:22px;max-width:130px;object-fit:contain;display:none;">
+        <span id="brand-org-name" style="font-size:13px;font-weight:700;color:var(--text-muted);"></span>
+      </span>
+      <div id="theme-switcher-topbar" class="theme-switcher" title="Theme"></div>
+      <span id="topbar-version" class="badge-version">V{{ version }}</span>
+      <div id="session-info" class="session-area" style="display:none;">
+        <span id="session-email" class="session-email"></span>
+        <span id="session-role-badge" class="role-badge"></span>
+        <button id="btn-signout" class="btn secondary small">Sign out</button>
+      </div>
+      <button id="btn-signin" class="btn primary small">Sign in</button>
+    </div>
+  </header>
+
+  <!-- Main -->
+  <div class="layout">
+    <aside class="sidebar">
+      <nav>
+        <a href="/" class="sidebar-link{% if active=='dashboard' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Infrastructure Overview
+        </a>
+        <a href="/devices" class="sidebar-link{% if active=='devices' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+          Devices
+        </a>
+        <a href="/speedtest" class="sidebar-link{% if active=='speedtest' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
+          Speed Test
+        </a>
+        <a href="/urlmonitor" class="sidebar-link{% if active=='urlmonitor' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="2" y1="12" x2="22" y2="12"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
+          Sites Monitor
+        </a>
+        <a href="/networkscan" class="sidebar-link{% if active=='networkscan' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="2" width="8" height="8" rx="1"/><rect x="14" y="2" width="8" height="8" rx="1"/><rect x="2" y="14" width="8" height="8" rx="1"/><rect x="14" y="14" width="8" height="8" rx="1"/></svg>
+          Network Scan
+        </a>
+        <a href="/settings" class="sidebar-link{% if active=='settings' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83-2.83l.06-.06A1.65 1.65 0 0 0 4.68 15a1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 2.83-2.83l.06.06A1.65 1.65 0 0 0 9 4.68a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 2.83l-.06.06A1.65 1.65 0 0 0 19.4 9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          Settings
+        </a>
+        <a href="/alerts" class="sidebar-link{% if active=='alerts' %} active{% endif %}">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+          Alert Event Logs
+          <span id="sidebar-alert-badge" class="alert-count-badge" style="display:none;">0</span>
+        </a>
+      </nav>
+      <div id="sidebar-status" style="margin-top:auto;padding:16px 14px;border-top:1px solid var(--border);">
+        <div style="display:flex;flex-direction:column;gap:5px;font-size:12px;">
+          <div><span class="dot ok"></span> Normal</div>
+          <div><span class="dot warning"></span> Warning</div>
+          <div><span class="dot critical"></span> Critical</div>
+          <div><span class="dot offline"></span> Offline</div>
+        </div>
+        <div id="sidebar-session" style="margin-top:12px;font-size:12px;color:var(--text-muted);"></div>
+      </div>
+    </aside>
+    <main class="main-content">
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  <footer class="app-footer">
+    <span>© 2024–2026 Net-monit V11.0 — Developed by <a href="mailto:abuabdullah.be@outlook.com" style="color:var(--accent)">Abdullah</a> — InfoXtek.com</span>
+  </footer>
+
+  <script src="/static/js/auth.js"></script>
+  <script>
+  // V8.5: organisation branding. V8.8 fix: this used to REPLACE the
+  // default Net-monit name/logo in the top bar -- app identity is meant
+  // to be static and non-configurable, so it now shows the admin-set org
+  // name/logo as a SEPARATE, additive element in the top bar's right side
+  // instead, alongside the (always-visible) Net-monit brand on the left.
+  // Falls back to nothing shown if no org branding is configured yet, so
+  // a fresh install just shows the plain Net-monit top bar.
+  (function(){
+    fetch("/api/settings/organisation").then(r=>r.json()).then(d=>{
+      if(!d || (!d.name && !d.logo_path)) return;  // nothing configured -- nothing extra to show
+      const brandOrg = document.getElementById("brand-org");
+      const orgLogo  = document.getElementById("brand-org-logo");
+      const orgName  = document.getElementById("brand-org-name");
+      if(brandOrg){ brandOrg.style.display = "inline-flex"; brandOrg.classList.remove("hidden"); }
+      if(d.logo_path && orgLogo){ orgLogo.src = d.logo_path; orgLogo.alt = d.name || "Logo"; orgLogo.style.display = ""; }
+      if(d.name && orgName){ orgName.textContent = d.name; if(d.color) orgName.style.color = d.color; }
+    }).catch(()=>{});
+  })();
+  // License state banner
+  (function(){
+    fetch("/api/license/status").then(r=>r.json()).then(d=>{
+      const restricted = d.state==="expired"||d.state==="invalid";
+      const trial = d.state==="trial";
+      // Show license nav link when restricted or trial expiring soon
+      if(restricted || (trial && d.trial_days_remaining<=7)){
+        document.getElementById("nav-license") && (document.getElementById("nav-license").style.display="");
+        document.getElementById("sidebar-license") && (document.getElementById("sidebar-license").style.display="");
+      }
+      if(restricted){
+        document.getElementById("sidebar-license-label") && (document.getElementById("sidebar-license-label").textContent="⚠ License");
+        // Show banner
+        const banner = document.createElement("div");
+        banner.id = "license-banner";
+        banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#b22222;color:#fff;text-align:center;padding:8px 16px;font-size:13px;font-weight:600;";
+        banner.innerHTML = '⚠ License Expired — Monitoring data is restricted. <a href="/activation" style="color:#ffe;text-decoration:underline;margin-left:8px;">Activate Now →</a>';
+        document.body.prepend(banner);
+        document.querySelector(".topbar") && (document.querySelector(".topbar").style.top="36px");
+      } else if(trial && d.trial_days_remaining<=7){
+        const banner = document.createElement("div");
+        banner.id = "license-banner";
+        banner.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:9999;background:#b8860b;color:#fff;text-align:center;padding:7px 16px;font-size:13px;";
+        banner.innerHTML = '⏱ Trial expires in <strong>'+d.trial_days_remaining+' day(s)</strong>. <a href="/activation" style="color:#ffe;text-decoration:underline;margin-left:8px;">Enter License Key →</a>';
+        document.body.prepend(banner);
+        document.querySelector(".topbar") && (document.querySelector(".topbar").style.top="33px");
+      }
+    }).catch(()=>{});
+  })();
+
+  // V7.2: sidebar Alert Event Logs open-count badge, refreshed on every page
+  (function pollAlertBadge(){
+    function tick(){
+      fetch("/api/alerts/count").then(r=>r.json()).then(d=>{
+        const b = document.getElementById("sidebar-alert-badge");
+        if (!b) return;
+        if (d.open > 0) { b.style.display=""; b.textContent = d.open; }
+        else { b.style.display="none"; }
+      }).catch(()=>{});
+    }
+    tick();
+    setInterval(tick, 20000);
+  })();
+  </script>
+  {% block scripts %}{% endblock %}
+</body>
+</html>

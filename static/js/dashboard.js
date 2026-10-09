@@ -1,0 +1,1167 @@
+/**
+ * dashboard.js — Net-monit V11.0
+ * Copyright (c) 2024-2026 Abdullah · abuabdullah.be@outlook.com
+ *
+ * Features:
+ *  - Live polling every 5 s via GET /api/status
+ *  - Per-user persisted tile layout (position, size, hidden) via POST /api/dashboard/layout
+ *  - Edit Layout mode: drag-to-reorder, size presets, corner drag-resize handle
+ *  - Grid / List view toggle persisted per user
+ *  - Grid density (2/3/4/5/Auto columns) persisted per user
+ *  - All layout changes staged in memory during edit mode; committed on Save
+ *  - Cancel reverts to the server state; Reset clears custom layout to the shared default
+ */
+
+/* ================================================================
+   State
+   ================================================================ */
+let allDevices     = [];   // latest API response device list
+
+// ── Auth callbacks (called by auth.js on login/logout) ────────────────────
+window.onAdminLogout = function() {
+  currentRole   = null;
+  canEditLayout = false;
+  // Cancel edit mode if active
+  if (editMode) cancelEditMode();
+  // Refresh dashboard immediately
+  refresh();
+};
+
+window.onAdminLogin = function(role) {
+  currentRole   = role;
+  canEditLayout = true;
+  refresh();
+};
+
+let currentRole    = null;
+let canEditLayout  = false;
+let editMode       = false;
+
+// Staged layout changes (only committed on Save)
+let stagedTiles    = {};   // { device_id: { position, hidden, size, grid_w, grid_h } }
+let stagedView     = null; // 'grid' | 'list' | null (null = not changed)
+let stagedCols     = null; // 0-5 | null
+
+// Last known server-side prefs (used for Cancel/initialisation)
+let serverViewType = 'grid';
+let serverGridCols = 0;
+let serverTiles    = {};   // same shape as stagedTiles
+
+// Drag state
+let dragSrcId    = null;
+let ctxDeviceId  = null;
+
+// Resize state
+let resizeDev    = null;
+let resizeStartX = 0;
+let resizeStartY = 0;
+let resizeOrigW  = 1;
+let resizeOrigH  = 1;
+const RESIZE_COL_PX = 240; // approximate column width in px
+
+/* ================================================================
+   Utility
+   ================================================================ */
+function tok() {
+  return sessionStorage.getItem('netmon_session') || '';
+}
+
+function apiFetch(url, opts = {}) {
+  return fetch(url, {
+    ...opts,
+    headers: { 'X-Session-Token': tok(), 'Content-Type': 'application/json', ...(opts.headers || {}) }
+  });
+}
+
+// V10.1: showToast used to be redefined here too -- removed. auth.js
+// (loaded on every page before this file, via base.html) is now the one
+// place it's defined. See auth.js for why that matters, not just for
+// tidiness.
+
+/* ================================================================
+   Boot & polling
+   ================================================================ */
+document.addEventListener('DOMContentLoaded', () => {
+  refresh();
+  setInterval(refresh, 5000);
+  document.addEventListener('click', closeCtxMenu);
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') { closeCtxMenu(); if (editMode) cancelEditMode(); }
+  });
+  // Mouse-move and mouse-up for drag-resize
+  document.addEventListener('mousemove', onResizeMove);
+  document.addEventListener('mouseup', onResizeEnd);
+});
+
+async function refresh(retryCount = 0) {
+  // During active edit, fetch new device data silently but don't re-render
+  // (so drag positions are not lost mid-edit)
+  if (editMode) {
+    try {
+      const res = await apiFetch('/api/status');
+      if (res.ok) {
+        const data = await res.json();
+        allDevices = data.devices || [];
+      }
+    } catch(_) {}
+    return;
+  }
+
+  const spinner = document.getElementById('refresh-spinner');
+  if (spinner) spinner.style.display = '';
+
+  try {
+    const res = await apiFetch('/api/status');
+    if (!res.ok) {
+      // Do NOT silently give up and leave the page blank -- retry once
+      // after a short delay (covers a transient network hiccup / the
+      // server briefly not being reachable right after page load).
+      if (retryCount < 2) {
+        setTimeout(() => refresh(retryCount + 1), 1200);
+        return;
+      }
+      if (spinner) spinner.style.display = 'none';
+      return;
+    }
+    const data = await res.json();
+
+    allDevices    = data.devices || [];
+    currentRole   = data.role;
+    // Any signed-in user (admin or viewer) may edit and save their OWN
+    // dashboard layout. The backend never actually sent a distinct
+    // "can_edit_layout" field (that was a dead reference that permanently
+    // hid the Edit button) -- being logged in at all is the real condition.
+    canEditLayout = !!data.role;
+
+    // Sync server-side layout state
+    serverViewType = data.view_type || 'grid';
+    serverGridCols = data.grid_cols || 0;
+    serverTiles    = buildServerTiles(allDevices);
+
+    // Show/hide toolbar elements based on login state + role.
+    // Edit + Add Tile are available to any signed-in user (Existing-Device
+    // visibility toggling is meant for everyone; only the New-Device form
+    // inside the Add Tile modal is admin-gated, enforced server-side by
+    // POST /api/devices requiring admin).
+    const btnEdit = document.getElementById('btn-edit-layout');
+    const btnAdd  = document.getElementById('btn-add-tile');
+    if (btnEdit) btnEdit.style.display = canEditLayout ? '' : 'none';
+    if (btnAdd)  btnAdd.style.display  = !!currentRole ? '' : 'none';
+
+    applyViewPrefs(serverViewType, serverGridCols);
+    renderSummary(data.summary || {});
+    renderIOCards(allDevices);
+    updateCategoryTabs(allDevices);
+
+    const lu = document.getElementById('last-updated');
+    if (lu) lu.textContent = 'Last updated: ' + new Date().toLocaleTimeString();
+  } catch (_) {
+    if (retryCount < 2) { setTimeout(() => refresh(retryCount + 1), 1200); return; }
+  }
+
+  if (spinner) spinner.style.display = 'none';
+}
+
+/* ================================================================
+   V7.2: Infrastructure Overview telemetry cards (NISM-inspired)
+   ================================================================ */
+async function renderIOCards(devices) {
+  // -- Network device counts --
+  const netDevices = devices.filter(d => (d.method || '') !== 'url');
+  const onlineNet  = netDevices.filter(d => d.status === 'ok' || d.status === 'warning').length;
+  const offlineNet = netDevices.filter(d => d.status === 'critical' || d.status === 'offline').length;
+
+  const elDevOnline = document.getElementById('io-devices-online');
+  const elDevTotal  = document.getElementById('io-devices-total');
+  const elDevMsg    = document.getElementById('io-devices-msg');
+  if (elDevOnline) elDevOnline.innerHTML = onlineNet + ' <span class="io-card-unit">/ ' + netDevices.length + ' Online</span>';
+  if (elDevMsg) {
+    if (offlineNet > 0) {
+      elDevMsg.textContent = offlineNet + ' node(s) unreachable';
+      elDevMsg.className = 'io-card-sub crit';
+    } else {
+      elDevMsg.textContent = netDevices.length ? 'All nodes reporting online' : 'No devices added yet';
+      elDevMsg.className = 'io-card-sub';
+    }
+  }
+
+  // -- Web application counts (method === 'url') --
+  const urlDevices = devices.filter(d => (d.method || '') === 'url');
+  const onlineApps = urlDevices.filter(d => d.status === 'ok').length;
+  const failedApps = urlDevices.filter(d => d.status === 'critical' || d.status === 'offline').length;
+
+  const elAppOnline = document.getElementById('io-apps-online');
+  const elAppTotal  = document.getElementById('io-apps-total');
+  const elAppMsg    = document.getElementById('io-apps-msg');
+  if (elAppOnline) elAppOnline.innerHTML = onlineApps + ' <span class="io-card-unit">/ ' + urlDevices.length + ' Online</span>';
+  if (elAppMsg) {
+    if (failedApps > 0) {
+      elAppMsg.textContent = failedApps + ' service outage active';
+      elAppMsg.className = 'io-card-sub crit';
+    } else {
+      elAppMsg.textContent = urlDevices.length ? 'Web services fully healthy' : 'No web apps configured yet';
+      elAppMsg.className = 'io-card-sub';
+    }
+  }
+
+  // -- WAN speed (latest speed test result, cached to avoid refetch every poll) --
+  const now = Date.now();
+  if (!window._ioSpeedCache || (now - window._ioSpeedCache.ts) > 15000) {
+    try {
+      const r = await fetch('/api/speedtest/history?limit=1');
+      const rows = await r.json();
+      window._ioSpeedCache = { ts: now, data: rows[0] || null };
+    } catch (_) { window._ioSpeedCache = { ts: now, data: null }; }
+  }
+  const latest = window._ioSpeedCache.data;
+  const elDl = document.getElementById('io-download');
+  const elUl = document.getElementById('io-upload');
+  const elIsp = document.getElementById('io-isp');
+  const elPing = document.getElementById('io-ping');
+  if (latest) {
+    if (elDl)  elDl.innerHTML  = (latest.download_mbps||0).toFixed(1) + ' <span class="io-card-unit">Mbps</span>';
+    if (elUl)  elUl.innerHTML  = (latest.upload_mbps||0).toFixed(1) + ' <span class="io-card-unit">Mbps</span>';
+    if (elIsp) elIsp.textContent = latest.isp ? ('ISP: ' + latest.isp) : 'Run a speed test to populate';
+    if (elPing) elPing.textContent = 'Ping: ' + (latest.latency_ms!=null?latest.latency_ms.toFixed(0):'--') + ' ms';
+  }
+}
+
+function buildServerTiles(devices) {
+  const map = {};
+  devices.forEach(d => {
+    map[d.device_id] = {
+      position: d.tile_position || 0,
+      hidden:   !!d.tile_hidden,
+      size:     d.tile_size || 'normal',
+      grid_w:   d.tile_grid_w || 1,
+      grid_h:   d.tile_grid_h || 1,
+    };
+  });
+  return map;
+}
+
+/* ================================================================
+   Summary bar
+   V10.0: two fixes together since they're the same element --
+   (1) pills were showing the raw lowercase status key ("ok") instead of
+   statusLabel()'s friendly text ("Healthy") -- CSS text-transform was
+   rendering it as "OK" on screen even though the underlying label was
+   never actually fixed up, just visually capitalized.
+   (2) pills are now clickable -- picking one filters the device grid
+   below to just that severity, resetting the category-tab filter to
+   "all" first so "click Warning, see every warning host" works exactly
+   as literally described, not just within whatever category tab
+   happened to be selected already. Click the same pill again, or the
+   "total" pill, to clear the filter.
+   ================================================================ */
+let currentSeverity = 'all';
+
+function renderSummary(summary) {
+  const bar = document.getElementById('summary-bar');
+  if (!bar) return;
+  const colors = { ok:'#3DD68C', warning:'#F2B84B', critical:'#FF5C5C', offline:'#6B7280' };
+  bar.innerHTML = Object.entries(colors).map(([s, c]) => `
+    <div class="summary-pill${currentSeverity===s ? ' active' : ''}" data-sev="${s}" role="button" tabindex="0" title="Show ${statusLabel(s)} hosts">
+      <span class="dot ${s}"></span>
+      <span class="count" style="color:${c}">${summary[s] || 0}</span>
+      <span class="label">${statusLabel(s)}</span>
+    </div>`).join('') +
+    `<div class="summary-pill${currentSeverity==='all' ? ' active' : ''}" data-sev="all" role="button" tabindex="0" title="Show all hosts">
+      <span class="count">${summary.total || 0}</span>
+      <span class="label">total</span>
+    </div>`;
+
+  bar.querySelectorAll('.summary-pill').forEach(pill => {
+    const go = () => setSeverityFilter(pill.dataset.sev);
+    pill.addEventListener('click', go);
+    pill.addEventListener('keydown', e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(); } });
+  });
+}
+
+function setSeverityFilter(sev) {
+  // Clicking the pill that's already active clears the filter instead of
+  // re-applying it -- lets the same click act as an on/off toggle.
+  currentSeverity = (currentSeverity === sev) ? 'all' : sev;
+  currentCategory  = 'all';
+  document.querySelectorAll('.cat-tab').forEach(btn => btn.classList.toggle('active', btn.dataset.cat === 'all'));
+  document.querySelectorAll('.summary-pill').forEach(p => p.classList.toggle('active', p.dataset.sev === currentSeverity));
+  renderDevices(_applyFilters(allDevices));
+}
+
+/* ================================================================
+   View type & grid density
+   ================================================================ */
+function applyViewPrefs(viewType, cols) {
+  const grid = document.getElementById('device-grid');
+  if (!grid) return;
+
+  // Switch grid ↔ list
+  const isGrid = viewType !== 'list';
+  grid.classList.toggle('dash-grid', isGrid);
+  grid.classList.toggle('dashboard-list', !isGrid);
+
+  // Density row visible only in grid view
+  const densRow = document.getElementById('grid-density-row');
+  if (densRow) densRow.style.display = isGrid ? '' : 'none';
+
+  // Update view toggle buttons
+  document.getElementById('btn-view-grid')?.classList.toggle('active', isGrid);
+  document.getElementById('btn-view-list')?.classList.toggle('active', !isGrid);
+
+  // Apply columns CSS variable
+  if (isGrid) {
+    if (cols && cols > 0) {
+      grid.style.gridTemplateColumns = `repeat(${cols}, minmax(0, 1fr))`;
+    } else {
+      grid.style.gridTemplateColumns = '';
+    }
+  } else {
+    grid.style.gridTemplateColumns = '';
+  }
+
+  // Highlight active density button
+  document.querySelectorAll('[data-cols]').forEach(btn => {
+    btn.classList.toggle('active', parseInt(btn.dataset.cols) === cols);
+  });
+}
+
+function setViewType(vt) {
+  if (editMode) {
+    stagedView = vt;
+    applyViewPrefs(vt, stagedCols ?? serverGridCols);
+  } else {
+    // Persist immediately if not in edit mode
+    apiFetch('/api/dashboard/view-mode', {
+      method: 'POST',
+      body: JSON.stringify({ view_type: vt, grid_cols: serverGridCols })
+    }).then(() => {
+      serverViewType = vt;
+      applyViewPrefs(vt, serverGridCols);
+    });
+  }
+}
+
+function setGridCols(n) {
+  if (editMode) {
+    stagedCols = n;
+    applyViewPrefs(stagedView ?? serverViewType, n);
+  } else {
+    apiFetch('/api/dashboard/view-mode', {
+      method: 'POST',
+      body: JSON.stringify({ view_type: serverViewType, grid_cols: n })
+    }).then(() => {
+      serverGridCols = n;
+      applyViewPrefs(serverViewType, n);
+    });
+  }
+}
+
+/* ================================================================
+   Edit Layout mode
+   ================================================================ */
+function toggleEditMode() {
+  editMode ? cancelEditMode() : enterEditMode();
+}
+
+function enterEditMode() {
+  editMode = true;
+  // Deep copy server tiles as the starting point for staging
+  stagedTiles = JSON.parse(JSON.stringify(serverTiles));
+  stagedView  = null;
+  stagedCols  = null;
+
+  const btn    = document.getElementById('btn-edit-layout');
+  const banner = document.getElementById('edit-mode-banner');
+  if (btn)    { btn.classList.add('edit-active'); btn.innerHTML = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </svg> Editing…`; }
+  if (banner) banner.style.display = 'flex';
+
+  const grid = document.getElementById('device-grid');
+  if (grid) grid.classList.add('edit-mode');
+
+  // Re-render: show hidden tiles (dimmed), add size presets + resize handles
+  renderDevices(allDevices, true);
+}
+
+function cancelEditMode() {
+  editMode    = false;
+  stagedTiles = {};
+  stagedView  = null;
+  stagedCols  = null;
+
+  const btn    = document.getElementById('btn-edit-layout');
+  const banner = document.getElementById('edit-mode-banner');
+  if (btn)    { btn.classList.remove('edit-active'); btn.innerHTML = `
+    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+      <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+      <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+    </svg> Edit Layout`; }
+  if (banner) banner.style.display = 'none';
+
+  const grid = document.getElementById('device-grid');
+  if (grid) grid.classList.remove('edit-mode');
+
+  applyViewPrefs(serverViewType, serverGridCols);
+  renderDevices(allDevices, false);
+}
+
+async function saveLayout() {
+  const btn = document.getElementById('btn-save-layout');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  // Build tiles list from staged state in current DOM order
+  const grid = document.getElementById('device-grid');
+  const cards = grid ? grid.querySelectorAll('.device-card[data-id]') : [];
+  const tiles = [];
+  let pos = 0;
+  cards.forEach(card => {
+    const did = card.dataset.id;
+    const st  = stagedTiles[did] || serverTiles[did] || {};
+    const colSpan = parseInt(card.style.getPropertyValue('--tile-w') || st.grid_w || 1);
+    const rowSpan = parseInt(card.style.getPropertyValue('--tile-h') || st.grid_h || 1);
+    tiles.push({
+      device_id: did,
+      position:  pos++,
+      hidden:    !!st.hidden,
+      size:      st.size || 'normal',
+      grid_w:    colSpan,
+      grid_h:    rowSpan,
+    });
+  });
+
+  try {
+    const body = { tiles };
+    if (stagedView  !== null) body.view_type  = stagedView;
+    if (stagedCols  !== null) body.grid_cols  = stagedCols;
+
+    const res = await apiFetch('/api/dashboard/layout', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    showToast('Layout saved!', 'success');
+
+    // Sync server state and exit edit mode
+    if (stagedView  !== null) serverViewType = stagedView;
+    if (stagedCols  !== null) serverGridCols = stagedCols;
+    // Trigger a fresh status poll to pick up the new server layout
+    editMode = false;
+    await refresh();
+    cancelEditMode(); // cleans up UI state
+  } catch (err) {
+    showToast('Save failed: ' + err.message, 'error');
+    if (btn) { btn.disabled = false; btn.textContent = 'Save Layout'; }
+  }
+}
+
+async function resetLayout() {
+  if (!confirm('Reset to the shared default layout? Your custom layout will be cleared.')) return;
+  try {
+    await apiFetch('/api/dashboard/layout', { method: 'POST' });
+    showToast('Layout reset to default.', 'info');
+    cancelEditMode();
+    await refresh();
+  } catch (_) {
+    showToast('Reset failed.', 'error');
+  }
+}
+
+/* ================================================================
+   Tile rendering
+   ================================================================ */
+function getTileState(deviceId) {
+  return editMode
+    ? (stagedTiles[deviceId] || serverTiles[deviceId] || { position:0, hidden:false, size:'normal', grid_w:1, grid_h:1 })
+    : (serverTiles[deviceId]  || { position:0, hidden:false, size:'normal', grid_w:1, grid_h:1 });
+}
+
+const SIZE_LABELS = { normal:'1×1', wide:'2×1', tall:'1×2', large:'2×2', custom:'Custom' };
+const SIZE_W = { normal:1, wide:2, tall:1, large:2, custom:1 };
+const SIZE_H = { normal:1, wide:1, tall:2, large:2, custom:1 };
+
+function applyTileSpan(card, size, grid_w, grid_h) {
+  // Remove all preset classes first
+  card.classList.remove('tile-normal','tile-wide','tile-tall','tile-large');
+  const preset = ['normal','wide','tall','large'].includes(size) ? size : null;
+  if (preset && preset !== 'custom') {
+    card.classList.add('tile-' + preset);
+    card.style.gridColumn = '';
+    card.style.gridRow    = '';
+  } else {
+    // Custom: apply inline grid spans
+    const w = grid_w || 1;
+    const h = grid_h || 1;
+    card.style.gridColumn = `span ${w}`;
+    card.style.gridRow    = `span ${h}`;
+  }
+  // Store for later read during saveLayout
+  card.style.setProperty('--tile-w', (SIZE_W[size] || grid_w || 1).toString());
+  card.style.setProperty('--tile-h', (SIZE_H[size] || grid_h || 1).toString());
+}
+
+/* ================================================================
+   V7.2: Category filter tabs (General / Network / Firewall / Windows /
+   Linux / URL-Sites). Filters which tiles renderDevices shows; the IO
+   summary cards above always reflect the full unfiltered device set.
+   ================================================================ */
+let currentCategory = 'all';
+
+function _deviceCategory(d) {
+  const method = (d.method || '').toLowerCase();
+  const type   = (d.type   || '').toLowerCase();
+  if (method === 'url') return 'url';
+  if (type === 'firewall') return 'firewall';
+  if (type === 'windows' || method === 'powershell') return 'windows';
+  if (type === 'linux'   || method === 'ssh') return 'linux';
+  if (type === 'network' || type === 'wireless' || method === 'ping' || method === 'snmp') return 'network';
+  return 'network';
+}
+
+function _applyFilters(devices) {
+  let out = currentCategory === 'all' ? devices : devices.filter(d => _deviceCategory(d) === currentCategory);
+  if (currentSeverity !== 'all') out = out.filter(d => d.status === currentSeverity);
+  return out;
+}
+
+function setCategory(cat) {
+  currentCategory = cat;
+  currentSeverity = 'all';
+  document.querySelectorAll('.cat-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.cat === cat);
+  });
+  document.querySelectorAll('.summary-pill').forEach(p => p.classList.toggle('active', p.dataset.sev === 'all'));
+  renderDevices(_applyFilters(allDevices));
+}
+
+function updateCategoryTabs(devices) {
+  const counts = { all: devices.length, network: 0, firewall: 0, windows: 0, linux: 0, url: 0 };
+  devices.forEach(d => { const c = _deviceCategory(d); if (counts[c] !== undefined) counts[c]++; });
+  Object.keys(counts).forEach(cat => {
+    const el = document.getElementById('cnt-' + cat);
+    if (el) el.textContent = counts[cat];
+  });
+  // Re-render with fresh data through whichever filter (category and/or
+  // severity) is currently active -- keeps the selection sticky across
+  // every 5s poll instead of always snapping back to "all".
+  renderDevices(_applyFilters(devices));
+}
+
+function renderDevices(devices, forceShowHidden = false) {
+  const grid = document.getElementById('device-grid');
+  const empty = document.getElementById('empty-state');
+  const note  = document.getElementById('hidden-tiles-note');
+  if (!grid) return;
+
+  // Sort by tile_position
+  const sorted = [...devices].sort((a, b) =>
+    (a.tile_position || 0) - (b.tile_position || 0));
+
+  const visible  = sorted.filter(d => !d.tile_hidden);
+  const hidden   = sorted.filter(d => !!d.tile_hidden);
+  const showList = editMode ? sorted : visible;  // show ALL in edit mode (dimmed if hidden)
+
+  const hiddenCount = hidden.length;
+  if (note) {
+    const show = hiddenCount > 0 && !editMode;
+    note.style.display = show ? 'flex' : 'none';
+    const hc = note.querySelector('.hidden-count');
+    if (hc) hc.textContent = hiddenCount;
+    const showBtn = document.getElementById('show-hidden-btn');
+    if (showBtn) showBtn.onclick = () => {
+      visible.concat(hidden).forEach(d => unHideTile(d.device_id));
+    };
+  }
+
+  if (empty) empty.style.display = visible.length === 0 && !editMode ? '' : 'none';
+
+  // Preserve existing card elements if device hasn't changed (just update metrics)
+  const existing = {};
+  grid.querySelectorAll('.device-card[data-id]').forEach(c => {
+    existing[c.dataset.id] = c;
+  });
+
+  // Remove cards not in current list
+  const currentIds = new Set(showList.map(d => d.device_id));
+  Object.entries(existing).forEach(([id, c]) => {
+    if (!currentIds.has(id)) c.remove();
+  });
+
+  showList.forEach((device, idx) => {
+    const st = getTileState(device.device_id);
+    let card = existing[device.device_id];
+    if (!card) {
+      card = buildTileCard(device);
+      grid.appendChild(card);
+    } else {
+      updateTileCard(card, device);
+    }
+    // Apply size
+    applyTileSpan(card, st.size, st.grid_w, st.grid_h);
+    // Visual: dim hidden tiles in edit mode
+    card.style.opacity = (editMode && st.hidden) ? '0.42' : '';
+    // Re-apply size presets active state
+    card.querySelectorAll('.tile-size-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.size === st.size);
+    });
+  });
+}
+
+function buildTileCard(device) {
+  const card = document.createElement('div');
+  card.className = 'device-card';
+  card.dataset.id = device.device_id;
+  card.draggable = true;
+  card.innerHTML = tileInnerHTML(device);
+  attachTileEvents(card, device);
+  return card;
+}
+
+function updateTileCard(card, device) {
+  // Patch only the dynamic parts (status, metrics, error) without re-creating the whole card
+  // This preserves drag/resize listeners across polls
+  const statusSel  = card.querySelector('.status-label');
+  const dotSel     = card.querySelector('.dot');
+  const metricSel  = card.querySelector('.metric-grid');
+  const errorSel   = card.querySelector('.device-error');
+  const footSel    = card.querySelector('.device-foot');
+
+  if (statusSel) { statusSel.className = `status-label ${device.status}`; statusSel.textContent = statusLabel(device.status); }
+  if (dotSel)    { dotSel.className = `dot ${device.status} pulse`; }
+  if (metricSel) metricSel.innerHTML = buildMetricsHTML(device);
+  if (errorSel)  { errorSel.textContent = device.last_error || ''; errorSel.style.display = device.last_error ? '' : 'none'; }
+  if (footSel)   footSel.innerHTML  = buildFootHTML(device);
+
+  card.className = `device-card ${device.status}`;
+}
+
+function tileInnerHTML(device) {
+  const m = device.metrics || {};
+  return `
+    <!-- V7.2: size presets shown in edit mode -->
+    <div class="tile-size-presets">
+      ${['normal','wide','tall','large'].map(s => `
+        <button class="tile-size-btn${(device.tile_size||'normal')===s?' active':''}"
+                data-size="${s}" title="${SIZE_LABELS[s]}" onclick="stageTileSize('${device.device_id}','${s}',event)">
+          ${SIZE_LABELS[s]}
+        </button>`).join('')}
+    </div>
+
+    <!-- drag handle + controls (top-right) -->
+    <div class="tile-controls" onmousedown="event.stopPropagation()">
+      <span class="tile-drag-handle" title="Drag to reorder">⠿</span>
+      <button class="tile-remove-btn" title="Hide / remove"
+              onclick="event.stopPropagation();openCtxMenu(event,'${device.device_id}')">✕</button>
+    </div>
+
+    <div class="device-card-head">
+      <div>
+        <div class="device-name">${escHtml(device.name)}</div>
+        <div class="device-host">${escHtml(device.host || '')}</div>
+      </div>
+      <span class="device-type-badge">${escHtml(device.method || device.type || 'ping')}</span>
+    </div>
+
+    <div class="status-row">
+      <span class="dot ${device.status} pulse"></span>
+      <span class="status-label ${device.status}">${statusLabel(device.status)}</span>
+    </div>
+
+    <div class="metric-grid">${buildMetricsHTML(device)}</div>
+    <div class="device-error" style="display:${device.last_error ? '' : 'none'}">${escHtml(device.last_error || '')}</div>
+    <div class="device-foot">${buildFootHTML(device)}</div>
+
+    <!-- V7.2: corner drag-resize handle -->
+    <div class="tile-resize-handle" title="Drag to resize">
+      <svg viewBox="0 0 14 14" fill="none" stroke="currentColor" stroke-width="2">
+        <line x1="14" y1="0"  x2="0"  y2="14"/>
+        <line x1="14" y1="5"  x2="5"  y2="14"/>
+        <line x1="14" y1="10" x2="10" y2="14"/>
+      </svg>
+    </div>`;
+}
+
+function buildMetricsHTML(device) {
+  const m = device.metrics || {};
+  const pairs = [
+    ['CPU',      m.cpu_pct     != null ? m.cpu_pct.toFixed(1) + '%' : null],
+    ['Memory',   m.memory_pct  != null ? m.memory_pct.toFixed(1) + '%' : null],
+    ['Disk',     m.disk_pct    != null ? m.disk_pct.toFixed(1) + '%' : null],
+    ['Latency',  m.latency_ms  != null ? m.latency_ms.toFixed(1) + ' ms' : null],
+    ['Loss',     m.packet_loss_pct != null ? m.packet_loss_pct.toFixed(1) + '%' : null],
+    ['Uptime',   m.uptime_days != null ? m.uptime_days.toFixed(1) + 'd' : null],
+    ['Free',     m.free_gb     != null ? m.free_gb.toFixed(1) + ' GB' : null],
+    // V8.2 fix: url-method devices report these fields (see url_check.py)
+    // but nothing here recognised them, so every Sites Monitor tile showed
+    // "No metrics collected yet" forever even though the values were
+    // already being recorded server-side.
+    ['Response', m.response_ms   != null ? m.response_ms.toFixed(0) + ' ms' : null],
+    ['HTTP',     m.status_code   != null ? String(m.status_code) : null],
+    ['SSL exp.', m.ssl_days_left != null ? m.ssl_days_left + 'd' : null],
+    ['Size',     m.content_size_kb != null ? m.content_size_kb.toFixed(1) + ' KB' : null],
+  ].filter(([_, v]) => v !== null);
+
+  // V8.2: per-service / per-task sub-checks attached to a host (see
+  // service_check.py / task_check.py) report as metrics.services /
+  // metrics.tasks arrays. Show a compact "N/M up" summary cell instead of
+  // one row per item so a host watching many services doesn't blow up the
+  // tile -- full detail is available in the device's expanded view.
+  if (Array.isArray(m.services) && m.services.length) {
+    const up = m.services.filter(s => s.running).length;
+    pairs.push(['Services', `${up}/${m.services.length} up`]);
+  }
+  if (Array.isArray(m.tasks) && m.tasks.length) {
+    const ok = m.tasks.filter(t => t.ok).length;
+    pairs.push(['Tasks', `${ok}/${m.tasks.length} ok`]);
+  }
+
+  if (!pairs.length) return `<div class="metric-cell" style="grid-column:span 2;text-align:center;">
+    <div class="metric-label" style="margin:0;">No metrics collected yet</div></div>`;
+  return pairs.map(([k, v]) => `
+    <div class="metric-cell">
+      <div class="metric-value">${v === null ? '—' : escHtml(String(v))}</div>
+      <div class="metric-label">${k}</div>
+    </div>`).join('');
+}
+
+function buildFootHTML(device) {
+  const ago = device.last_checked ? relativeTime(device.last_checked) : '—';
+  return `<span>${escHtml(device.method || '')}</span><span>Checked ${ago}</span>`;
+}
+
+function relativeTime(ts) {
+  const s = Math.floor(Date.now() / 1000 - ts);
+  if (s < 5)   return 'just now';
+  if (s < 60)  return `${s}s ago`;
+  if (s < 3600) return `${Math.floor(s/60)}m ago`;
+  return `${Math.floor(s/3600)}h ago`;
+}
+
+function escHtml(s) {
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+}
+
+// V8.2: display label only -- the underlying status value ("ok", "warning",
+// "critical", "offline", "unknown") is unchanged and still drives the CSS
+// class, so color rules / status filters elsewhere keep working untouched.
+const STATUS_LABELS = { ok: 'Healthy', warning: 'Warning', critical: 'Critical', offline: 'Offline', unknown: 'Unknown' };
+function statusLabel(status) {
+  return STATUS_LABELS[status] || (status ? status.charAt(0).toUpperCase() + status.slice(1) : 'Unknown');
+}
+
+function attachTileEvents(card, device) {
+  const id = device.device_id;
+
+  // Drag-to-reorder (HTML5 drag API)
+  card.addEventListener('dragstart', e => {
+    dragSrcId = id;
+    card.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', id);
+  });
+  card.addEventListener('dragend', () => {
+    dragSrcId = null;
+    card.classList.remove('dragging');
+    document.querySelectorAll('.drag-over').forEach(c => c.classList.remove('drag-over'));
+  });
+  card.addEventListener('dragover', e => {
+    if (!editMode) return;
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    if (dragSrcId && dragSrcId !== id) card.classList.add('drag-over');
+  });
+  card.addEventListener('dragleave', () => card.classList.remove('drag-over'));
+  card.addEventListener('drop', e => {
+    e.preventDefault();
+    card.classList.remove('drag-over');
+    if (!editMode || !dragSrcId || dragSrcId === id) return;
+    dropTile(dragSrcId, id);
+  });
+
+  // Right-click context menu (outside edit mode only)
+  card.addEventListener('contextmenu', e => {
+    if (editMode) return;
+    e.preventDefault();
+    openCtxMenu(e, id);
+  });
+
+  // Corner drag-resize handle
+  const handle = card.querySelector('.tile-resize-handle');
+  if (handle) {
+    handle.addEventListener('mousedown', e => {
+      if (!editMode) return;
+      e.stopPropagation();
+      e.preventDefault();
+      const st = getTileState(id);
+      resizeDev    = id;
+      resizeStartX = e.clientX;
+      resizeStartY = e.clientY;
+      resizeOrigW  = SIZE_W[st.size] || st.grid_w || 1;
+      resizeOrigH  = SIZE_H[st.size] || st.grid_h || 1;
+      card.classList.add('resizing');
+    });
+  }
+}
+
+/* ================================================================
+   Drag-to-reorder DOM manipulation
+   ================================================================ */
+function dropTile(srcId, targetId) {
+  const grid  = document.getElementById('device-grid');
+  const cards = grid ? [...grid.querySelectorAll('.device-card[data-id]')] : [];
+  const src   = cards.find(c => c.dataset.id === srcId);
+  const tgt   = cards.find(c => c.dataset.id === targetId);
+  if (!src || !tgt) return;
+
+  // Re-insert src before or after target based on visual position
+  const srcIdx = cards.indexOf(src);
+  const tgtIdx = cards.indexOf(tgt);
+  if (srcIdx < tgtIdx) tgt.after(src);
+  else tgt.before(src);
+
+  // Update staged positions
+  const newOrder = [...grid.querySelectorAll('.device-card[data-id]')];
+  newOrder.forEach((c, i) => {
+    const did = c.dataset.id;
+    if (!stagedTiles[did]) stagedTiles[did] = { ...serverTiles[did] };
+    stagedTiles[did].position = i;
+  });
+}
+
+/* ================================================================
+   Tile size presets (edit mode only)
+   ================================================================ */
+function stageTileSize(deviceId, size, event) {
+  event.stopPropagation();
+  if (!editMode) return;
+  if (!stagedTiles[deviceId]) stagedTiles[deviceId] = { ...serverTiles[deviceId] };
+  stagedTiles[deviceId].size   = size;
+  stagedTiles[deviceId].grid_w = SIZE_W[size] || 1;
+  stagedTiles[deviceId].grid_h = SIZE_H[size] || 1;
+
+  const grid = document.getElementById('device-grid');
+  const card = grid?.querySelector(`.device-card[data-id="${deviceId}"]`);
+  if (card) {
+    applyTileSpan(card, size, SIZE_W[size], SIZE_H[size]);
+    card.querySelectorAll('.tile-size-btn').forEach(b => {
+      b.classList.toggle('active', b.dataset.size === size);
+    });
+  }
+}
+
+/* ================================================================
+   Corner drag-resize handler
+   ================================================================ */
+function onResizeMove(e) {
+  if (!resizeDev || !editMode) return;
+  const dx = e.clientX - resizeStartX;
+  const dy = e.clientY - resizeStartY;
+  const newW = Math.max(1, Math.min(6, resizeOrigW + Math.round(dx / RESIZE_COL_PX)));
+  const newH = Math.max(1, Math.min(6, resizeOrigH + Math.round(dy / RESIZE_COL_PX)));
+
+  if (!stagedTiles[resizeDev]) stagedTiles[resizeDev] = { ...serverTiles[resizeDev] };
+  stagedTiles[resizeDev].size   = 'custom';
+  stagedTiles[resizeDev].grid_w = newW;
+  stagedTiles[resizeDev].grid_h = newH;
+
+  const grid = document.getElementById('device-grid');
+  const card = grid?.querySelector(`.device-card[data-id="${resizeDev}"]`);
+  if (card) {
+    card.style.gridColumn = `span ${newW}`;
+    card.style.gridRow    = `span ${newH}`;
+    card.style.setProperty('--tile-w', newW.toString());
+    card.style.setProperty('--tile-h', newH.toString());
+    card.querySelectorAll('.tile-size-btn').forEach(b => b.classList.remove('active'));
+  }
+}
+
+function onResizeEnd() {
+  if (!resizeDev) return;
+  const grid = document.getElementById('device-grid');
+  const card = grid?.querySelector(`.device-card[data-id="${resizeDev}"]`);
+  if (card) card.classList.remove('resizing');
+  resizeDev = null;
+}
+
+/* ================================================================
+   Tile hide / unhide (outside edit mode — immediate save to global)
+   ================================================================ */
+async function hideTile(deviceId) {
+  await apiFetch(`/api/tiles/${deviceId}/hide`, { method: 'POST' });
+  await refresh();
+}
+
+async function unHideTile(deviceId) {
+  await apiFetch(`/api/tiles/${deviceId}/show`, { method: 'POST' });
+  await refresh();
+}
+
+// In edit mode, toggle hidden on the staged tile without an API call
+function stageToggleHide(deviceId) {
+  if (!stagedTiles[deviceId]) stagedTiles[deviceId] = { ...serverTiles[deviceId] };
+  stagedTiles[deviceId].hidden = !stagedTiles[deviceId].hidden;
+  renderDevices(allDevices, true);
+}
+
+/* ================================================================
+   Context menu (outside edit mode)
+   ================================================================ */
+function openCtxMenu(e, deviceId) {
+  if (editMode) return;
+  ctxDeviceId = deviceId;
+  const menu = document.getElementById('tile-ctx-menu');
+  if (!menu) return;
+  menu.style.display = '';
+  menu.style.left    = Math.min(e.clientX, window.innerWidth  - 210) + 'px';
+  menu.style.top     = Math.min(e.clientY, window.innerHeight - 260) + 'px';
+  e.stopPropagation();
+}
+
+function closeCtxMenu() {
+  const m = document.getElementById('tile-ctx-menu');
+  if (m) m.style.display = 'none';
+}
+
+function menuHideTile()         { closeCtxMenu(); hideTile(ctxDeviceId); }
+function menuResizeTile(size)   {
+  closeCtxMenu();
+  if (!ctxDeviceId) return;
+  apiFetch(`/api/tiles/${ctxDeviceId}/size`, { method:'POST', body: JSON.stringify({ size }) });
+  // Optimistic local update
+  const grid = document.getElementById('device-grid');
+  const card = grid?.querySelector(`.device-card[data-id="${ctxDeviceId}"]`);
+  if (card) applyTileSpan(card, size, SIZE_W[size]||1, SIZE_H[size]||1);
+  // Sync serverTiles
+  if (serverTiles[ctxDeviceId]) serverTiles[ctxDeviceId].size = size;
+}
+
+async function menuRemoveDevice() {
+  closeCtxMenu();
+  if (!ctxDeviceId) return;
+  if (!confirm(`Permanently remove "${ctxDeviceId}" and stop monitoring?`)) return;
+  await apiFetch(`/api/devices/${ctxDeviceId}`, { method: 'DELETE' });
+  await refresh();
+}
+
+/* ================================================================
+   Quick-add tile modal — Existing Device (checkbox list) | New Device
+   ================================================================ */
+let qaExistingDirty = false;   // tracks unsaved checkbox changes
+
+function openQuickAdd() {
+  document.getElementById('quick-add-overlay')?.classList.remove('hidden');
+  qaSwitchSource('existing');
+  loadQaExistingList();
+  buildQaFields();
+}
+
+function qaSwitchSource(which) {
+  const tabExisting = document.getElementById('qa-tab-existing');
+  const tabNew       = document.getElementById('qa-tab-new');
+  const paneExisting = document.getElementById('qa-pane-existing');
+  const paneNew       = document.getElementById('qa-pane-new');
+  if (which === 'existing') {
+    tabExisting.classList.add('active');
+    tabNew.classList.remove('active');
+    paneExisting.style.display = '';
+    paneNew.style.display = 'none';
+  } else {
+    tabExisting.classList.remove('active');
+    tabNew.classList.add('active');
+    paneExisting.style.display = 'none';
+    paneNew.style.display = 'flex';
+  }
+}
+
+async function loadQaExistingList() {
+  const listEl = document.getElementById('qa-existing-list');
+  if (!listEl) return;
+  listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">Loading devices...</div>';
+  try {
+    const res  = await apiFetch('/api/status');
+    const data = await res.json();
+    const devices = data.devices || [];
+    if (!devices.length) {
+      listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">' +
+        'No devices exist yet. Switch to "New Device" to create one.</div>';
+      return;
+    }
+    window._qaAllDevices = devices;
+    renderQaExistingList(devices);
+  } catch (e) {
+    listEl.innerHTML = `<div style="color:var(--status-critical);font-size:13px;">Failed to load: ${e.message}</div>`;
+  }
+}
+
+function renderQaExistingList(devices) {
+  const listEl = document.getElementById('qa-existing-list');
+  if (!listEl) return;
+  if (!devices.length) {
+    listEl.innerHTML = '<div style="color:var(--text-muted);font-size:13px;padding:12px 0;">No devices match your filter.</div>';
+    return;
+  }
+
+  const CAT_LABELS = { network:'Network Devices', firewall:'Firewalls', windows:'Windows Devices',
+                        linux:'Linux Devices', url:'Sites' };
+  const groups = {};
+  devices.forEach(d => {
+    const c = _deviceCategory(d);
+    (groups[c] = groups[c] || []).push(d);
+  });
+  const order = ['network','firewall','windows','linux','url'];
+
+  listEl.innerHTML = order.filter(c => groups[c] && groups[c].length).map(cat => {
+    const rows = groups[cat].map(d => {
+      const checked   = !d.tile_hidden ? 'checked' : '';
+      const typeLabel = (d.method || d.type || '').toUpperCase();
+      return `<label class="qa-existing-row">
+        <input type="checkbox" data-device-id="${d.device_id}" ${checked}
+               onchange="qaExistingDirty=true">
+        <span style="font-weight:600;font-size:13px;">${d.name}</span>
+        <span class="qa-existing-meta">${typeLabel} &middot; ${d.host || ''}</span>
+      </label>`;
+    }).join('');
+    return `<div class="qa-cat-group">
+      <div class="qa-cat-group-hdr">${CAT_LABELS[cat] || cat} <span class="qa-cat-count">${groups[cat].length}</span></div>
+      ${rows}
+    </div>`;
+  }).join('');
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('qa-close')?.addEventListener('click',  () => closeQuickAdd());
+  document.getElementById('qa-cancel')?.addEventListener('click', () => closeQuickAdd());
+  document.getElementById('qa-submit')?.addEventListener('click', submitQuickAdd);
+  document.getElementById('qa-kind')?.addEventListener('change', buildQaFields);
+  document.getElementById('qa-existing-apply')?.addEventListener('click', applyQaExisting);
+  document.getElementById('qa-existing-filter')?.addEventListener('input', (e) => {
+    const q = e.target.value.toLowerCase();
+    const all = window._qaAllDevices || [];
+    renderQaExistingList(all.filter(d =>
+      d.name.toLowerCase().includes(q) || (d.host || '').toLowerCase().includes(q)
+    ));
+  });
+});
+
+async function applyQaExisting() {
+  const rows = document.querySelectorAll('#qa-existing-list input[type=checkbox]');
+  const showIds = [];
+  const hideIds = [];
+  rows.forEach(cb => {
+    const id = cb.dataset.deviceId;
+    if (cb.checked) showIds.push(id); else hideIds.push(id);
+  });
+  try {
+    await Promise.all([
+      ...showIds.map(id => apiFetch(`/api/tiles/${id}/show`, { method: 'POST' })),
+      ...hideIds.map(id => apiFetch(`/api/tiles/${id}/hide`, { method: 'POST' })),
+    ]);
+    showToast(`Dashboard updated — ${showIds.length} tile(s) visible`, 'success');
+    closeQuickAdd();
+    await refresh();
+  } catch (e) {
+    showToast('Failed to update tiles: ' + e.message, 'error');
+  }
+}
+
+function closeQuickAdd() {
+  document.getElementById('quick-add-overlay')?.classList.add('hidden');
+}
+function buildQaFields() {
+  const kind = document.getElementById('qa-kind')?.value || 'server_ping';
+  const cf   = document.getElementById('qa-cred-fields');
+  const pf   = document.getElementById('qa-path-field');
+  const mf   = document.getElementById('qa-metric-fields');
+  if (!cf) return;
+  const needsCreds   = kind.includes('windows') || kind.includes('ssh');
+  const isDrive      = kind.includes('drive');
+  if (pf) pf.style.display = isDrive ? '' : 'none';
+  cf.innerHTML = needsCreds ? `
+    <div class="form-grid">
+      <div class="field"><label>Username</label>
+        <input id="qa-user" type="text" placeholder="domain\\user or user"></div>
+      <div class="field"><label>Password</label>
+        <input id="qa-pass" type="password" placeholder="password"></div>
+    </div>
+    ${kind.includes('windows') ? `<div class="field">
+      <label>Remote (WinRM)?</label>
+      <select id="qa-remote"><option value="1">Yes</option><option value="0">No</option></select>
+    </div>` : ''}` : '';
+  if (mf) mf.innerHTML = kind === 'url' ? `
+    <div class="field" style="border-top:1px solid var(--border);padding-top:10px;margin-top:2px;">
+      <label style="font-size:12px;color:var(--text-muted);">URL monitoring options</label>
+      <div class="form-grid" style="margin-top:6px;">
+        <div class="field"><label>Expected HTTP status</label>
+          <input id="qa-url-status" type="number" value="200" min="100" max="599"></div>
+        <div class="field" style="justify-content:flex-end;">
+          <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="qa-url-ssl" checked> Verify SSL certificate</label>
+        </div>
+      </div>
+    </div>` : `
+    <div class="field" style="border-top:1px solid var(--border);padding-top:10px;margin-top:2px;">
+      <label style="font-size:12px;color:var(--text-muted);">Monitoring options</label>
+      <div style="display:flex;flex-direction:column;gap:6px;margin-top:6px;">
+        ${kind.includes('windows') || kind.includes('ssh') ? `
+          <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="qa-m-cpu" checked> CPU usage</label>
+          <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="qa-m-mem" checked> Memory usage</label>
+          <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+            <input type="checkbox" id="qa-m-disk" checked> Disk usage</label>` : ''}
+        <label style="display:flex;gap:8px;align-items:center;font-size:13px;cursor:pointer;">
+          <input type="checkbox" id="qa-m-ping" checked> Ping / latency</label>
+      </div>
+    </div>`;
+}
+async function submitQuickAdd() {
+  const id   = document.getElementById('qa-id')?.value.trim();
+  const name = document.getElementById('qa-name')?.value.trim();
+  const host = document.getElementById('qa-host')?.value.trim();
+  const kind = document.getElementById('qa-kind')?.value || 'server_ping';
+  if (!id || !name || !host) { showToast('ID, Name and Host are required.', 'error'); return; }
+  // V8.2 fix: 'url' (the "Web application URL" option in #qa-kind) had no
+  // entry here, so methodMap[kind] was undefined and every URL added from
+  // this dashboard quick-add fell back to method:'ping' -- landing it on
+  // the Network tab instead of URL. type must also match what the Sites
+  // Monitor page itself uses (type:'web') for consistent categorization.
+  const methodMap = {
+    server_ping:'ping', server_windows:'powershell', server_ssh:'ssh',
+    shared_drive_windows:'disk_usage', shared_drive_linux:'disk_usage',
+    url:'url'
+  };
+  const body = {
+    id, name, host,
+    type:   kind === 'url' ? 'web' : (kind.includes('drive') ? 'storage' : 'server'),
+    method: methodMap[kind] || 'ping',
+  };
+  if (document.getElementById('qa-user')?.value) {
+    body.username = document.getElementById('qa-user').value;
+    body.password = document.getElementById('qa-pass')?.value || '';
+  }
+  if (document.getElementById('qa-remote')) body.remote = document.getElementById('qa-remote').value === '1';
+  if (document.getElementById('qa-path'))  body.path   = document.getElementById('qa-path').value;
+  if (kind === 'url') {
+    body.url_config = {
+      expected_status: parseInt(document.getElementById('qa-url-status')?.value, 10) || 200,
+      check_ssl:        document.getElementById('qa-url-ssl')?.checked !== false,
+      timeout_sec:      10,
+    };
+  }
+
+  const btn = document.getElementById('qa-submit');
+  if (btn) btn.disabled = true;
+  try {
+    const res = await apiFetch('/api/devices', { method: 'POST', body: JSON.stringify(body) });
+    if (!res.ok) { const d = await res.json(); throw new Error(d.error || 'HTTP ' + res.status); }
+    showToast(`"${name}" added and monitoring started.`, 'success');
+    closeQuickAdd();
+    // Force layout re-fetch so new device appears without manual sign-out
+    await refresh();
+    // Also poll again after scheduler picks up the new device (2 sec delay)
+    setTimeout(async () => { await refresh(); }, 2500);
+  } catch (err) {
+    showToast('Error: ' + err.message, 'error');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}

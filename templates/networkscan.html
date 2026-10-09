@@ -1,0 +1,563 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="page-header">
+  <div>
+    <h1 class="page-title">Network Scanner</h1>
+    <p class="page-sub">Discover all live devices on your subnet. Identifies hostnames, MAC addresses, vendors, and open ports.</p>
+  </div>
+</div>
+
+<!-- Scan config card -->
+<div class="card" style="margin-bottom:18px;">
+  <h2 class="card-title" style="padding:14px 22px 6px;">Scan Configuration</h2>
+  <div style="padding:0 22px 18px;">
+    <div style="display:flex;gap:12px;flex-wrap:wrap;align-items:flex-end;">
+      <div style="flex:1;min-width:220px;">
+        <label class="ns-label">Subnet to scan:</label>
+        <input id="ns-subnet" type="text" placeholder="192.168.1.0/24"
+               class="ns-input">
+      </div>
+      <div>
+        <label class="ns-label">Max workers:</label>
+        <input id="ns-workers" type="number" value="64" min="8" max="256"
+               class="ns-input" style="width:90px;">
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;padding-bottom:2px;">
+        <input type="checkbox" id="ns-portscan" checked style="width:15px;height:15px;">
+        <label for="ns-portscan" style="font-size:13px;color:var(--text-secondary);white-space:nowrap;">
+          Port scan (identify device type)
+        </label>
+        <input type="checkbox" id="ns-udpscan" checked style="width:15px;height:15px;margin-left:10px;">
+        <label for="ns-udpscan" style="font-size:13px;color:var(--text-secondary);white-space:nowrap;"
+               title="Sends small standard requests (DNS, TFTP, NTP, NetBIOS, SNMP 'public', UPnP, mDNS) and lists a UDP port only if the device answers. Adds a few seconds.">
+          Check UDP ports too
+        </label>
+      </div>
+      <button id="ns-btn" class="btn primary" onclick="startScan()" style="white-space:nowrap;padding:9px 22px;">
+        &#128269; Scan Network
+      </button>
+      <button class="btn" onclick="detectSubnets()" style="white-space:nowrap;padding:9px 14px;font-size:12px;">
+        Auto-detect
+      </button>
+    </div>
+    <div id="ns-subnet-list" style="display:none;margin-top:10px;"></div>
+    <div style="margin-top:8px;">
+      <div id="ns-progress-wrap" style="display:none;">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+          <span id="ns-status" style="font-size:13px;color:var(--text-secondary);"></span>
+          <span id="ns-timer" style="font-size:12px;color:var(--text-muted);"></span>
+        </div>
+        <div style="background:var(--bg-hover);border-radius:4px;height:6px;overflow:hidden;">
+          <div id="ns-bar" style="height:100%;background:var(--accent);
+               transition:width .3s;border-radius:4px;animation:scanpulse 1.5s infinite;"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Results -->
+<div class="card" id="ns-results-card" style="display:none;">
+  <div style="padding:14px 22px 6px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <div>
+      <h2 class="card-title" style="margin:0;" id="ns-results-title">Scan Results</h2>
+      <p style="color:var(--text-muted);font-size:12px;margin:2px 0 0;" id="ns-results-sub"></p>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <input id="ns-filter" type="text" placeholder="Filter by IP, hostname, vendor..."
+             style="background:var(--bg-input);border:1px solid var(--border);
+                    border-radius:var(--radius-sm);padding:6px 12px;color:var(--text-primary);
+                    font-size:12px;width:220px;"
+             oninput="filterResults()">
+      <button id="ns-add-btn" class="btn primary" style="font-size:12px;"
+              onclick="openAddSelected()">+ Add Selected to Monitoring</button>
+    </div>
+  </div>
+
+  <!-- Summary row -->
+  <div id="ns-summary" style="display:flex;gap:12px;flex-wrap:wrap;padding:0 22px 12px;"></div>
+
+  <!-- Results table -->
+  <div style="overflow-x:auto;">
+    <table class="data-table" id="ns-table">
+      <thead>
+        <tr>
+          <th style="width:36px;">
+            <input type="checkbox" id="ns-chk-all" onchange="toggleAll(this.checked)"
+                   style="width:14px;height:14px;">
+          </th>
+          <th>IP Address</th>
+          <th>Hostname</th>
+          <th>MAC Address</th>
+          <th>Vendor</th>
+          <th>Device Type</th>
+          <th>Open Ports (TCP / UDP)</th>
+          <th>Add</th>
+          <th style="width:32px;"></th>
+        </tr>
+      </thead>
+      <tbody id="ns-tbody"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- Scan history -->
+<div class="card" style="margin-top:18px;">
+  <h2 class="card-title" style="padding:14px 22px 6px;">Scan History</h2>
+  <div id="ns-history" style="padding:0 22px 14px;">
+    <div style="color:var(--text-muted);font-size:13px;">Loading history...</div>
+  </div>
+</div>
+
+<!-- Add devices modal -->
+<div id="ns-add-modal" class="modal-overlay" style="display:none;">
+  <div class="modal-box" style="max-width:520px;">
+    <div class="modal-header">
+      <span class="modal-title">Add Discovered Devices</span>
+      <button class="icon-btn" onclick="document.getElementById('ns-add-modal').style.display='none'">&#10005;</button>
+    </div>
+    <div style="padding:18px 22px;">
+      <p style="font-size:13px;color:var(--text-secondary);margin-bottom:14px;">
+        Select monitoring method for the selected devices. You can change this later per device.
+      </p>
+      <div id="ns-add-list" style="max-height:260px;overflow-y:auto;"></div>
+      <div style="margin-top:14px;">
+        <label style="font-size:12px;color:var(--text-muted);">Default method for all:</label>
+        <select id="ns-add-method"
+                style="margin-left:8px;background:var(--bg-input);border:1px solid var(--border);
+                       border-radius:4px;padding:5px 10px;color:var(--text-primary);font-size:13px;">
+          <option value="ping">Ping</option>
+          <option value="snmp">SNMP</option>
+          <option value="ssh">SSH</option>
+          <option value="powershell">PowerShell (Windows)</option>
+        </select>
+      </div>
+      <div id="ns-add-err" style="color:var(--status-critical);font-size:12px;margin-top:8px;"></div>
+      <div style="display:flex;gap:10px;justify-content:flex-end;margin-top:18px;">
+        <button class="btn" onclick="document.getElementById('ns-add-modal').style.display='none'">Cancel</button>
+        <button class="btn primary" onclick="confirmAddDevices()">Add to Monitoring</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<style>
+.ns-host-row { cursor: pointer; }
+.ns-host-row.expanded { background: var(--bg-hover); }
+.expand-chevron { display:inline-block; color:var(--text-muted); font-size:12px; transition:transform .15s; }
+.expand-chevron.open { transform: rotate(180deg); color: var(--accent); }
+.ns-expand-row td { border-top: none !important; }
+.ns-expand-panel {
+  background: var(--bg-hover); border-left: 3px solid var(--accent);
+  padding: 16px 22px; margin: 0;
+}
+.ns-expand-grid {
+  display: grid; grid-template-columns: repeat(auto-fit,minmax(160px,1fr)); gap: 14px;
+}
+.ns-expand-lbl { font-size:10px; color:var(--text-muted); text-transform:uppercase; letter-spacing:.4px; margin-bottom:3px; }
+.ns-expand-val { font-size:13px; font-weight:600; color:var(--text-primary); }
+.port-detail-list { display:flex; flex-direction:column; gap:2px; max-width:420px; }
+.port-detail-row {
+  display:grid; grid-template-columns:60px 1fr 70px; gap:10px; align-items:center;
+  padding:5px 10px; background:var(--card); border-radius:4px; font-size:12px;
+}
+.port-detail-num  { font-family:var(--font-mono); font-weight:700; color:var(--accent); }
+.port-detail-name { color:var(--text-secondary); }
+.port-detail-state{ color:var(--status-ok); font-size:10px; font-weight:700; text-align:right; }
+.ns-label { display:block;font-size:12px;color:var(--text-muted);margin-bottom:4px; }
+.ns-input { background:var(--bg-input);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:8px 12px;color:var(--text-primary);
+  font-size:13px;font-family:var(--font-mono); }
+.modal-overlay { position:fixed;inset:0;background:rgba(0,0,0,.55);
+  display:flex;align-items:center;justify-content:center;z-index:1000; }
+.port-tag.tcp { color:#38bdf8; }
+.port-tag.udp { color:#fb923c; }
+.port-tag { display:inline-block;background:var(--bg-hover);color:var(--accent);
+  border-radius:4px;padding:1px 6px;font-size:10px;font-family:var(--font-mono);
+  margin:1px; }
+@keyframes scanpulse { 0%,100%{opacity:1}50%{opacity:.5} }
+.ns-sum-tile { background:var(--bg-hover);border:1px solid var(--border);
+  border-radius:var(--radius-sm);padding:10px 16px;text-align:center;min-width:90px; }
+.ns-sum-val  { font-size:22px;font-weight:700;font-family:var(--font-mono);color:var(--text-primary); }
+.ns-sum-lbl  { font-size:10px;color:var(--text-muted);text-transform:uppercase; }
+</style>
+
+<script>
+let scanData = [];
+let addedIps = new Set();
+let pollTimer = null;
+
+async function detectSubnets() {
+  const r = await fetch('/api/networkscan/detect-subnets',
+                        {headers:{'X-Session-Token':getSession()}});
+  const d = await r.json();
+  const subnets = d.subnets || [];
+  const wrap = document.getElementById('ns-subnet-list');
+  if (!subnets.length) {
+    wrap.style.display='';
+    wrap.innerHTML='<span style="color:var(--text-muted);font-size:12px;">No subnets detected.</span>';
+    return;
+  }
+  wrap.style.display='';
+  wrap.innerHTML = '<span style="font-size:12px;color:var(--text-muted);">Detected subnets:&nbsp;</span>' +
+    subnets.map(s=>
+      `<button class="btn" style="font-size:11px;padding:2px 10px;margin:2px;"
+         onclick="document.getElementById('ns-subnet').value='${s}';
+                  document.getElementById('ns-subnet-list').style.display='none'">
+         ${s}</button>`
+    ).join('');
+}
+
+async function startScan() {
+  const subnet  = document.getElementById('ns-subnet').value.trim();
+  const workers = parseInt(document.getElementById('ns-workers').value)||64;
+  const portScan= document.getElementById('ns-portscan').checked;
+  const udpScan = document.getElementById('ns-udpscan').checked;   // V11.0
+  if (!subnet) { alert('Enter a subnet (e.g. 192.168.1.0/24)'); return; }
+
+  document.getElementById('ns-btn').disabled = true;
+  document.getElementById('ns-btn').textContent = '⏳ Scanning...';
+  document.getElementById('ns-progress-wrap').style.display='';
+  document.getElementById('ns-bar').style.width='15%';
+  document.getElementById('ns-results-card').style.display='none';
+  document.getElementById('ns-status').textContent = `Scanning ${subnet}...`;
+
+  let elapsed = 0;
+  const timerEl = document.getElementById('ns-timer');
+  const timerInt = setInterval(()=>{ elapsed++; timerEl.textContent=`${elapsed}s elapsed`; },1000);
+
+  try {
+    const r = await fetch('/api/networkscan/scan',{
+      method:'POST',
+      headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+      body: JSON.stringify({subnet, port_scan:portScan, udp_scan: udpScan, max_workers:workers})
+    });
+    const d = await r.json();
+    if (d.error) throw new Error(d.error);
+    pollScan(d.scan_id, timerInt);
+  } catch(e) {
+    clearInterval(timerInt);
+    document.getElementById('ns-status').textContent='Error: '+e.message;
+    document.getElementById('ns-status').style.color='var(--status-critical)';
+    document.getElementById('ns-btn').disabled=false;
+    document.getElementById('ns-btn').textContent='⬛ Scan Network';
+  }
+}
+
+function pollScan(scanId, timerInt) {
+  let pct = 15;
+  const bar = document.getElementById('ns-bar');
+  pollTimer = setInterval(async ()=>{
+    try {
+      const r = await fetch(`/api/networkscan/status/${scanId}`,
+                            {headers:{'X-Session-Token':getSession()}});
+      const d = await r.json();
+      pct = Math.min(pct+3, 90);
+      bar.style.width = pct+'%';
+      document.getElementById('ns-status').textContent =
+        d.status==='running'?`Scanning ${d.subnet}...`:
+        d.status==='done'?'Scan complete!':'Processing...';
+
+      if (d.status==='done'||d.status==='error') {
+        clearInterval(pollTimer);
+        clearInterval(timerInt);
+        bar.style.width='100%';
+        bar.style.animation='none';
+        document.getElementById('ns-btn').disabled=false;
+        document.getElementById('ns-btn').textContent='⬛ Scan Network';
+        if (d.status==='done' && d.result) {
+          showResults(d.result);
+          loadHistory();
+        } else if (d.result&&d.result.error) {
+          document.getElementById('ns-status').textContent='Error: '+d.result.error;
+          document.getElementById('ns-status').style.color='var(--status-critical)';
+        }
+      }
+    } catch(e) { console.error(e); }
+  }, 2500);
+}
+
+function showResults(result) {
+  scanData = result.hosts_found || [];
+  window._ns_meta = { tcp: result.tcp_probed || [], udp: result.udp_probed || [] };   // what this scan actually checked
+  document.getElementById('ns-results-card').style.display='';
+  document.getElementById('ns-results-title').textContent =
+    `Found ${result.hosts_alive} live host(s) in ${result.subnet}`;
+  document.getElementById('ns-results-sub').textContent =
+    `Scanned ${result.total_scanned} addresses in ${result.duration_sec}s  |  Port scan: ${result.port_scan?'yes':'no'}  |  UDP check: ${result.udp_scan?'yes':'no'}`;
+
+  // Summary tiles
+  const typeCount = {};
+  scanData.forEach(h => { typeCount[h.device_type] = (typeCount[h.device_type]||0)+1; });
+  const topTypes = Object.entries(typeCount).sort((a,b)=>b[1]-a[1]).slice(0,4);
+  document.getElementById('ns-summary').innerHTML =
+    `<div class="ns-sum-tile"><div class="ns-sum-val">${scanData.length}</div>
+      <div class="ns-sum-lbl">Live Hosts</div></div>` +
+    topTypes.map(([t,n])=>
+      `<div class="ns-sum-tile"><div class="ns-sum-val">${n}</div>
+       <div class="ns-sum-lbl">${t}</div></div>`).join('');
+
+  renderTable(scanData);
+}
+
+// Port number -> common service name (mirrors PORT_PROBES in network_scan.py)
+const PORT_SERVICE_NAMES = {
+  22:'SSH', 23:'Telnet', 25:'SMTP', 53:'DNS', 80:'HTTP', 110:'POP3',
+  143:'IMAP', 161:'SNMP', 443:'HTTPS', 445:'SMB', 3306:'MySQL',
+  3389:'RDP', 5000:'Flask/Dev', 5086:'Net-monit', 5087:'Net-monit', 5088:'Net-monit', 50100:'Net-monit', 50101:'Net-monit', 50102:'Net-monit', 50103:'Net-monit', 50104:'Net-monit', 50105:'Net-monit', 50106:'Net-monit', 50107:'Net-monit', 50108:'Net-monit', 50109:'Net-monit', 50110:'Net-monit', 8080:'HTTP-Alt',
+  8443:'HTTPS-Alt', 9100:'Printer'
+};
+
+let expandedRows = new Set();
+
+function toggleRowExpand(idx) {
+  if (expandedRows.has(idx)) expandedRows.delete(idx); else expandedRows.add(idx);
+  renderTable(window._ns_currentFiltered || scanData);
+}
+
+// V10.7: hostnames come from reverse DNS and MAC/vendor from the network -- escape them before they reach innerHTML
+function _esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, function(c) {
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c];
+  });
+}
+// every open port, TYPE-labelled. Scans saved before V11.0 only have open_ports (TCP) -- shown as TCP.
+function _portList(h) {
+  if (h.port_details && h.port_details.length) return h.port_details;
+  return (h.open_ports || []).map(function(p) { return {port: p, proto: 'tcp', service: PORT_SERVICE_NAMES[p] || ''}; });
+}
+
+function renderTable(hosts) {
+  const tbody = document.getElementById('ns-tbody');
+  window._ns_currentFiltered = hosts;
+  if (!hosts.length) {
+    tbody.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--text-muted);padding:24px;">No hosts found.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = hosts.map((h,i)=>{
+    const globalIdx = scanData.indexOf(h);
+    const isExpanded = expandedRows.has(globalIdx);
+    const pl = _portList(h);
+    const ports = pl.slice(0,6)
+      .map(d=>`<span class="port-tag ${d.proto === 'udp' ? 'udp' : 'tcp'}" title="${_esc(d.service || '')}">${d.port}/${d.proto}</span>`).join('');
+    const portMore = pl.length>6?
+      `<span class="port-tag" style="color:var(--text-muted);">+${pl.length-6}</span>`:'';
+
+    let expandRow = '';
+    if (isExpanded) {
+      const tcpL = pl.filter(d => d.proto !== 'udp'), udpL = pl.filter(d => d.proto === 'udp');
+      const prow = (d, state) => `
+            <div class="port-detail-row">
+              <span class="port-detail-num">${d.port}/${String(d.proto).toUpperCase()}</span>
+              <span class="port-detail-name">${_esc(d.service || PORT_SERVICE_NAMES[d.port] || 'Unknown service')}</span>
+              <span class="port-detail-state">${state}</span>
+            </div>`;
+      const none = (m) => `<div style="color:var(--text-muted);font-size:12px;padding:8px 0;">${m}</div>`;
+      const meta = window._ns_meta || {tcp: [], udp: []};
+      const tcpHtml = tcpL.length ? tcpL.map(d => prow(d, 'OPEN')).join('') : none('No open TCP ports detected (or the port scan was off for this scan).');
+      const udpHtml = udpL.length ? udpL.map(d => prow(d, 'ANSWERED')).join('') : none('No UDP port answered (or the UDP check was off for this scan).');
+      const portDetailHtml = `
+        <div class="ns-expand-lbl" style="margin:0 0 4px;color:#38bdf8;">TCP — open ports (${tcpL.length})</div>${tcpHtml}
+        <div class="ns-expand-lbl" style="margin:12px 0 4px;color:#fb923c;">UDP — ports that answered (${udpL.length})</div>${udpHtml}
+        <div style="color:var(--text-muted);font-size:11px;line-height:1.5;margin-top:10px;">
+          UDP has no handshake, so a UDP port is listed only when the device <b>answered</b> a request for that service.
+          A port that stays silent may still be open (firewalled, or a service that never replies to strangers).
+          ${meta.udp.length ? 'UDP checked: ' + meta.udp.join(', ') + '.' : ''}
+          ${meta.tcp.length ? 'TCP checked: ' + meta.tcp.join(', ') + '.' : ''}
+        </div>`;
+
+      expandRow = `<tr class="ns-expand-row">
+        <td colspan="9" style="padding:0;">
+          <div class="ns-expand-panel">
+            <div class="ns-expand-grid">
+              <div>
+                <div class="ns-expand-lbl">Hostname</div>
+                <div class="ns-expand-val">${_esc(h.hostname) || '(none)'}</div>
+              </div>
+              <div>
+                <div class="ns-expand-lbl">MAC Address</div>
+                <div class="ns-expand-val" style="font-family:var(--font-mono);">${_esc(h.mac) || '(unknown)'}</div>
+              </div>
+              <div>
+                <div class="ns-expand-lbl">Manufacturer / Vendor</div>
+                <div class="ns-expand-val">${_esc(h.vendor) || '(unknown — no OUI match)'}</div>
+              </div>
+              <div>
+                <div class="ns-expand-lbl">Device Type</div>
+                <div class="ns-expand-val" style="color:var(--accent);">${_esc(h.device_type) || 'Host'}</div>
+              </div>
+            </div>
+            <div class="ns-expand-lbl" style="margin-top:14px;margin-bottom:6px;">
+              Open Ports (${pl.length} — TCP ${tcpL.length} · UDP ${udpL.length})
+            </div>
+            <div class="port-detail-list">${portDetailHtml}</div>
+          </div>
+        </td>
+      </tr>`;
+    }
+
+    return `<tr class="ns-host-row ${isExpanded?'expanded':''}">
+      <td><input type="checkbox" class="ns-row-chk" data-idx="${globalIdx}"
+                 style="width:14px;height:14px;" onclick="event.stopPropagation()"></td>
+      <td style="font-family:var(--font-mono);font-weight:600;">${_esc(h.ip)}</td>
+      <td style="font-size:12px;">${_esc(h.hostname) || '<span style="color:var(--text-muted);">&mdash;</span>'}</td>
+      <td style="font-family:var(--font-mono);font-size:12px;">${_esc(h.mac)||'—'}</td>
+      <td style="font-size:12px;">${_esc(h.vendor)||'—'}</td>
+      <td><span style="font-size:12px;color:var(--accent);">${_esc(h.device_type)||'Host'}</span></td>
+      <td style="max-width:180px;">${ports}${portMore}</td>
+      <td>
+        <button class="btn" id="ns-add-btn-${globalIdx}" style="font-size:11px;padding:2px 8px;"
+          ${addedIps.has(h.ip) ? 'disabled' : ''}
+          onclick="event.stopPropagation();addSingleDevice(${globalIdx})">${addedIps.has(h.ip) ? '\u2713 Added' : '+ Add'}</button>
+      </td>
+      <td style="text-align:center;cursor:pointer;" onclick="toggleRowExpand(${globalIdx})">
+        <span class="expand-chevron ${isExpanded?'open':''}">&#9662;</span>
+      </td>
+    </tr>${expandRow}`;
+  }).join('');
+
+  // Row click (excluding checkbox/button cells) also toggles expand
+  tbody.querySelectorAll('.ns-host-row').forEach(row => {
+    row.addEventListener('click', (e) => {
+      if (e.target.closest('input,button')) return;
+      const chk = row.querySelector('.ns-row-chk');
+      if (chk) toggleRowExpand(parseInt(chk.dataset.idx));
+    });
+  });
+}
+
+function filterResults() {
+  const q = document.getElementById('ns-filter').value.toLowerCase();
+  const filtered = scanData.filter(h =>
+    h.ip.includes(q) ||
+    (h.hostname||'').toLowerCase().includes(q) ||
+    (h.vendor||'').toLowerCase().includes(q) ||
+    (h.device_type||'').toLowerCase().includes(q) ||
+    (h.mac||'').toLowerCase().includes(q) ||
+    _portList(h).some(d => (d.port + '/' + d.proto + ' ' + (d.service || '')).toLowerCase().includes(q))   // V10.7: 161, snmp, udp, 22/tcp ...
+  );
+  renderTable(filtered);
+}
+
+function toggleAll(checked) {
+  document.querySelectorAll('.ns-row-chk').forEach(c=>c.checked=checked);
+}
+
+function getSelectedHosts() {
+  const selected = [];
+  document.querySelectorAll('.ns-row-chk:checked').forEach(c=>{
+    const idx = parseInt(c.dataset.idx);
+    if (scanData[idx]) selected.push(scanData[idx]);
+  });
+  return selected;
+}
+
+async function addSingleDevice(idx) {
+  const h = scanData[idx];
+  if (!h) return;
+  const r = await fetch('/api/networkscan/add-devices',{
+    method:'POST',
+    headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+    body:JSON.stringify({hosts:[{ip:h.ip, hostname:h.hostname||h.ip, method:'ping'}]})
+  });
+  const d = await r.json();
+  if (d.ok) {
+    addedIps.add(h.ip);
+    const btn = document.getElementById('ns-add-btn-' + idx);
+    if (btn) { btn.textContent = '\u2713 Added'; btn.disabled = true; }
+    const label = (h.hostname && h.hostname !== h.ip) ? (h.hostname + ' (' + h.ip + ')') : h.ip;
+    const vendorTxt = h.vendor ? ' — ' + h.vendor : '';
+    showToast && showToast('Device added: ' + label + vendorTxt, 'success', 5000);
+  } else {
+    showToast && showToast(d.error || 'Could not add device ' + h.ip, 'error');
+  }
+}
+
+function openAddSelected() {
+  const hosts = getSelectedHosts();
+  if (!hosts.length) { alert('Select at least one host first.'); return; }
+  const list = document.getElementById('ns-add-list');
+  list.innerHTML = hosts.map(h=>
+    `<div style="display:flex;align-items:center;gap:8px;padding:4px 0;
+                 border-bottom:1px solid var(--border);font-size:13px;">
+       <input type="checkbox" class="ns-add-chk" data-ip="${h.ip}"
+              data-host="${h.hostname||h.ip}" checked style="width:14px;height:14px;">
+       <span style="font-family:var(--font-mono);font-weight:600;">${h.ip}</span>
+       <span style="color:var(--text-muted);font-size:11px;">${h.hostname||''}</span>
+       <span style="color:var(--accent);font-size:11px;margin-left:auto;">${h.vendor||h.device_type||''}</span>
+     </div>`
+  ).join('');
+  document.getElementById('ns-add-modal').style.display='flex';
+}
+
+async function confirmAddDevices() {
+  const method = document.getElementById('ns-add-method').value;
+  const hosts  = [];
+  document.querySelectorAll('.ns-add-chk:checked').forEach(c=>{
+    hosts.push({ip:c.dataset.ip, name:c.dataset.host, method});
+  });
+  if (!hosts.length) { document.getElementById('ns-add-err').textContent='Select at least one host.'; return; }
+  const r = await fetch('/api/networkscan/add-devices',{
+    method:'POST',
+    headers:{'X-Session-Token':getSession(),'Content-Type':'application/json'},
+    body:JSON.stringify({hosts})
+  });
+  const d = await r.json();
+  if (d.ok) {
+    document.getElementById('ns-add-modal').style.display='none';
+    hosts.forEach(h => addedIps.add(h.ip));
+    renderTable(window._ns_currentFiltered || scanData);
+    const names = hosts.map(h => h.name || h.ip).join(', ');
+    showToast && showToast(d.added + ' device(s) added: ' + names, 'success', 6000);
+  } else {
+    document.getElementById('ns-add-err').textContent = d.error||'Failed';
+  }
+}
+
+async function loadHistory() {
+  try {
+    const r = await fetch('/api/networkscan/history',
+                          {headers:{'X-Session-Token':getSession()}});
+    const jobs = await r.json();
+    const el   = document.getElementById('ns-history');
+    if (!jobs.length) {
+      el.innerHTML='<span style="color:var(--text-muted);font-size:13px;">No scans yet.</span>';
+      return;
+    }
+    el.innerHTML = `<table class="data-table"><thead><tr>
+      <th>ID</th><th>Subnet</th><th>Status</th><th>Started</th><th>Updated</th>
+    </tr></thead><tbody>` +
+    jobs.map(j=>`<tr>
+      <td>#${j.id}</td>
+      <td style="font-family:var(--font-mono);">${j.subnet}</td>
+      <td><span class="status-badge ${j.status==='done'?'badge-ok':j.status==='error'?'badge-critical':'badge-warning'}">${j.status.toUpperCase()}</span></td>
+      <td style="font-size:12px;">${new Date(j.created_ts*1000).toLocaleString()}</td>
+      <td style="font-size:12px;">${new Date(j.updated_ts*1000).toLocaleString()}</td>
+    </tr>`).join('') + '</tbody></table>';
+  } catch(e) { console.error(e); }
+}
+
+document.addEventListener('DOMContentLoaded', function(){
+  loadHistory();
+  // V10.1: the page itself only blocks View-only role (see networkscan_page()
+  // in app.py), but /api/networkscan/scan has always required full Admin --
+  // a Supervisor could reach this page, see "Scan Network", click it, and
+  // get rejected every time with no warning beforehand. Auto-detect and
+  // history stay available to Supervisors (their routes are login-only,
+  // and reading past results is a reasonable thing for that role to do);
+  // only the actual scan action needed this.
+  if (typeof getRole === 'function' && getRole() !== 'admin') {
+    const btn = document.getElementById('ns-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.title = 'Scanning the network requires an Administrator account';
+    }
+    const wrap = document.getElementById('ns-status');
+    if (wrap) {
+      wrap.textContent = 'Scanning requires an Administrator account — you can still use Auto-detect and view scan history below.';
+      wrap.style.color = 'var(--text-muted)';
+    }
+  }
+});
+</script>
+{% endblock %}

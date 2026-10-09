@@ -1,0 +1,74 @@
+smtp:
+  enabled: false
+  host: smtp-mail.outlook.com
+  port: 587
+  use_tls: true
+  username: ''
+  password: ''
+  from_address: ''
+  admin_emails: []
+  support_emails: []
+  manager_emails: []
+  to_addresses: []
+  resend_interval_minutes: 30
+defaults:
+  poll_interval_seconds: 30
+  ping_timeout_ms: 1000
+  thresholds:
+    latency_ms:
+      warning: 100
+      critical: 300
+    packet_loss_pct:
+      warning: 5
+      critical: 20
+    cpu_pct:
+      warning: 75
+      critical: 90
+    memory_pct:
+      warning: 80
+      critical: 95
+    disk_pct:
+      warning: 80
+      critical: 95
+    bandwidth_pct:
+      warning: 70
+      critical: 90
+devices:
+- id: test1
+  name: Test Router
+  type: network
+  method: ping
+  host: 192.168.1.1
+  poll_interval_seconds: 30
+- host: https://google.com
+  id: url_google_test
+  method: url
+  name: Google
+  poll_interval_seconds: 60
+  type: web
+  url_config:
+    check_ssl: true
+    expected_status: 200
+    keyword: ''
+    ssl_warn_days: 30
+    timeout_sec: 10
+# ── Speed Test (optional) ─────────────────────────────────────────────────────
+# Everything here is optional; the defaults need no entry. Restart the service after changing it.
+#
+# speedtest:
+#   engine: builtin       # builtin = (DEFAULT since V10.9) Net-monit's own test: live gauge, Cloudflare data centre
+#                         #            nearest to you (e.g. DXB), no console needed, works as a Windows service
+#                         # auto    = try the third-party speedtest-cli library first, then the built-in test
+#                         #            (no live gauge; it picks its own server, which can be in another country)
+#   targets:              # OPTIONAL: your own nearby test server(s). Tried in the order listed, BEFORE
+#                         # Cloudflare. Any LibreSpeed-compatible server works (garbage.php / empty.php).
+#     - name: "HQ Dubai"
+#       url: "https://speedtest.example.ae/"   # the folder that contains garbage.php and empty.php
+#       # download_path: garbage.php           # defaults shown
+#       # upload_path:   empty.php
+#       # ping_path:     empty.php
+#       # verify_tls:    true                  # false only for a self-signed certificate you trust
+
+server:
+  port: 50110
+  host: 0.0.0.0
